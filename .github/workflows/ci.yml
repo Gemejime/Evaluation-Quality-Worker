@@ -31,7 +31,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install Linting & Typecheck Dependencies
         run: |
@@ -48,7 +47,17 @@ jobs:
 
       - name: Run Static Type Analysis (mypy)
         run: |
-          python -m mypy --ignore-missing-imports internal cmd test || true
+          TARGETS=""
+          for dir in cmd internal test; do
+            if [ -d "$dir" ]; then
+              TARGETS="$TARGETS $dir"
+            fi
+          done
+          if [ -n "$TARGETS" ]; then
+            python -m mypy --ignore-missing-imports $TARGETS
+          else
+            echo "No source directories (cmd, internal, test) found; skipping mypy."
+          fi
 
   test-suite:
     name: Unit & Integration Tests
@@ -62,15 +71,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install Test Dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pytest-cov
           if [ -f pyproject.toml ]; then
-            pip install -e ".[test]" || pip install pytest pytest-asyncio pytest-cov
-          else
-            pip install pytest pytest-asyncio pytest-cov
+            pip install -e ".[test]"
           fi
 
       - name: Run Unit Tests
@@ -104,12 +111,46 @@ jobs:
 
       - name: Verify Quality Gate Thresholds
         run: |
-          echo "Verifying evaluation threshold release gates (tau >= 0.82)..."
+          echo "Executing golden-set evaluator and verifying quality gates (tau >= 0.82)..."
           python -c "
-          MIN_FAITHFULNESS = 0.82
-          MIN_CONTEXT_PRECISION = 0.82
-          MIN_ANSWER_RELEVANCE = 0.82
-          print(f'Quality Gates Configured: Faithfulness >= {MIN_FAITHFULNESS}, Context Precision >= {MIN_CONTEXT_PRECISION}, Answer Relevance >= {MIN_ANSWER_RELEVANCE}')
+          import sys, os, subprocess, json
+
+          MIN_THRESHOLDS = {
+              'faithfulness': 0.82,
+              'context_precision': 0.82,
+              'answer_relevance': 0.82,
+          }
+
+          evaluator_module = 'internal.evaluation.runner'
+          evaluator_file = 'internal/evaluation/runner.py'
+          golden_set_file = 'test/fixtures/golden_set.json'
+
+          if not os.path.exists(evaluator_file):
+              print(f'FATAL: Evaluator {evaluator_file} does not exist. Evaluation did not run.', file=sys.stderr)
+              sys.exit(1)
+
+          cmd = [sys.executable, '-m', evaluator_module, '--golden-set', golden_set_file]
+          try:
+              proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+              results = json.loads(proc.stdout)
+          except subprocess.CalledProcessError as e:
+              print(f'FATAL: Evaluator process failed with code {e.returncode}: {e.stderr}', file=sys.stderr)
+              sys.exit(1)
+          except Exception as e:
+              print(f'FATAL: Failed to execute evaluator or parse output: {e}', file=sys.stderr)
+              sys.exit(1)
+
+          for metric, min_val in MIN_THRESHOLDS.items():
+              if metric not in results or results[metric] is None:
+                  print(f'FATAL: Required metric score \"{metric}\" is missing or unavailable.', file=sys.stderr)
+                  sys.exit(1)
+              val = float(results[metric])
+              if val < min_val:
+                  print(f'FAILURE: Quality gate threshold breached for {metric}: {val:.4f} < {min_val:.2f}', file=sys.stderr)
+                  sys.exit(1)
+              print(f'SUCCESS: {metric}: {val:.4f} >= {min_val:.2f}')
+
+          print('All quality gate thresholds passed.')
           "
 
   docker-build:
