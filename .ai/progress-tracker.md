@@ -48,14 +48,14 @@
 ## Operational Runbooks
 
 ### Runbook 1: Downstream Judge Saturation Remediation
-1. Inspect `eval_judge_429_responses_total`.
+1. Inspect `eval_judge_rate_limit_errors_total`.
 2. If 429 rates rise, reduce the concurrency cap dynamically in the worker configuration map (`JUDGE_MAX_CONCURRENT_REQUESTS`).
 3. Verify that Temporal activity timeouts are sized appropriately to allow queues to drain without failing execution activities.
 
 ### Runbook 2: Quality Gate CI/CD Rejection Troubleshooting
-1. Inspect failed pipeline execution via ClickHouse:
+1. Inspect failed pipeline execution via ClickHouse (using `FINAL` for deduplicated reads):
    ```sql
-   SELECT * FROM eval_metric_points WHERE run_id = '{run_id}' AND score < threshold;
+   SELECT * FROM eval_metric_points FINAL WHERE run_id = '{run_id}' AND score < 0.82;
    ```
 2. If faithfulness degraded: check for regressions in prompt template system instructions in `rag-prompt-registry-service`.
 3. If context_precision degraded: check candidate retrieval and reranking parameters in `rag-search-orchestrator`.

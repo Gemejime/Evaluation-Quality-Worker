@@ -3,7 +3,7 @@
 ## General Principles
 
 - **Single Responsibility**: Decouple batch evaluation orchestration (Temporal) from LLM judge invocation and ClickHouse micro-batching.
-- **Fail-Fast on Corrupt Input**: Invalid golden set schemas or malformed evaluation samples must throw non-retryable application exceptions so the workflow can isolate invalid data without wasting expensive LLM judge queries.
+- **Fail-Fast on Corrupt Input**: Distinguish batch-level from per-sample failures: only invalid batch schemas or configuration escape the activity as non-retryable exceptions (`ApplicationError`), while malformed individual samples must enter the Dead-Letter Queue (DLQ) path and allow the activity to continue processing the remaining valid samples.
 - **Root-Cause Focus**: Never patch race conditions or judge 429 throttling with arbitrary sleep statements; use disciplined token-bucket governors with exponential jitter backoff.
 
 ---
@@ -32,7 +32,7 @@
    - Outbound circuit breaker trips after 5 consecutive downstream failures, halting requests for 30s to allow downstream serving recovery without thrashing worker threads.
 2. **Heartbeat Continuity & Checkpointing**:
    - Temporal activity workers must emit heartbeats with current `sample_idx` every 10 seconds.
-   - On worker preemption or pod restart, `activity.get_heartbeat_details()` is inspected to resume at sample $N+1$, ensuring 0 duplicate judge queries.
+   - On worker preemption or pod restart, `activity.get_heartbeat_details()` is inspected to resume at the last checkpoint; judge calls follow at-least-once semantics, while ClickHouse composite key deduplication guarantees 0 duplicate persisted rows.
 3. **Memory Management**:
    - `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so` must be enabled in container deployments to prevent heap fragmentation during high-volume string manipulations.
 
@@ -45,7 +45,7 @@
    - Raw single-row inserts are strictly prohibited to avoid creating excessive detached parts in ClickHouse.
 2. **Unified Persistence & Deduplication (ADR-003)**:
    - Relational PostgreSQL run tracking is removed. All run metadata (`evaluation_runs`) and sample-level metric points (`eval_metric_points`) reside in ClickHouse `ReplacingMergeTree` tables.
-   - `eval_metric_points` uses `ReplacingMergeTree(created_at)` ordered by `(tenant_id, run_id, metric_name, sample_idx)` to guarantee idempotent re-runs.
+   - `eval_metric_points` uses `ReplacingMergeTree(created_at)` ordered by `(tenant_id, run_id, metric_name, sample_idx)` to guarantee idempotent re-runs; read-time consumers must query with `FINAL` or equivalent version-aware selection.
 
 ---
 

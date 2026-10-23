@@ -6,15 +6,15 @@ You are working on **`rag-eval-governance-worker`** (Evaluation & Quality Worker
 
 ## 1. Authoritative Context Hierarchy
 
-Before implementing any code or making architectural changes, you **MUST** consult and follow the documentation files in the [`.ai/`](.ai) directory in this exact sequence:
+Before implementing any code or making architectural changes, you **MUST** consult and follow the documentation files in the [`.ai/`](.ai) directory. To eliminate ambiguity across onboarding guides, the authoritative sequence (governed by [`.ai.md`](.ai.md)) is:
 
-1. [`.ai/agents.md`](.ai/agents.md) — **Core AI Agent Persona & Execution Protocol**. Defines your engineering identity, responsibilities, and procedural standards.
-2. [`.ai/project-overview.md`](.ai/project-overview.md) — Strategic goals, decoupled compute architecture (`rag-masking-sanitizer` stream vs. `rag-eval-worker` batch), and calibrated SLIs/SLOs.
-3. [`.ai/architecture.md`](.ai/architecture.md) — 5-layer backend architecture (aligned with Production Grade Backend Concepts), system stack, directory structure, memory management (`jemalloc`), and Architectural Decision Records (ADR-001 through ADR-004).
-4. [`.ai/doc-api.md`](.ai/doc-api.md) — **Microservice Documented API ("Doc API")**. Specifies OpenAPI 3.1 endpoints (`/docs`, `/redoc`, `/api/docs`, `/openapi.json`), health probes (`/healthz`, `/ready`), Temporal activity/workflow contracts (`eval-task-queue`), ClickHouse schemas (`evaluation_runs`, `eval_metric_points`), and Protobuf v3 contracts.
-5. [`.ai/code-standards.md`](.ai/code-standards.md) — Python 3.12+ conventions, Ruff linting/formatting/isort, mypy strict typing, rate limiting, and ClickHouse micro-batching rules.
-6. [`.ai/security.md`](.ai/security.md) — Threat model, trust boundaries, KMS-salted HMAC token hashing, container hardening, and Secured Logging invariants.
-7. [`.ai/ai-workflow-rules.md`](.ai/ai-workflow-rules.md) — Spec-driven workflow, pre-commit checklist, continuous Doc API sync, and scoping guards.
+1. [`.ai/project-overview.md`](.ai/project-overview.md) — Strategic goals, decoupled compute architecture (`rag-masking-sanitizer` stream vs. `rag-eval-worker` batch), and calibrated SLIs/SLOs.
+2. [`.ai/architecture.md`](.ai/architecture.md) — 5-layer backend architecture (aligned with Production Grade Backend Concepts), system stack, directory structure, memory management (`jemalloc`), and Architectural Decision Records (ADR-001 through ADR-004).
+3. [`.ai/doc-api.md`](.ai/doc-api.md) — **Microservice Documented API ("Doc API")**. Specifies OpenAPI 3.1 endpoints (`/docs`, `/redoc`, `/api/docs`, `/openapi.json`), health probes (`/healthz`, `/ready`), Temporal activity/workflow contracts (`eval-task-queue`), ClickHouse schemas (`evaluation_runs`, `eval_metric_points`), and Protobuf v3 contracts.
+4. [`.ai/code-standards.md`](.ai/code-standards.md) — Python 3.12+ conventions, Ruff linting/formatting/isort, mypy strict typing, rate limiting, and ClickHouse micro-batching rules.
+5. [`.ai/security.md`](.ai/security.md) — Threat model, trust boundaries, KMS-salted HMAC token hashing, container hardening, and Secured Logging invariants.
+6. [`.ai/ai-workflow-rules.md`](.ai/ai-workflow-rules.md) — Spec-driven workflow, pre-commit checklist, continuous Doc API sync, and scoping guards.
+7. [`.ai/agents.md`](.ai/agents.md) — Core AI Agent Persona & Execution Protocol. Defines engineering identity, responsibilities, and procedural standards.
 8. [`.ai/progress-tracker.md`](.ai/progress-tracker.md) — 4-phase milestone tracker, completed units, ADRs, and operational runbooks.
 
 ---
@@ -36,12 +36,12 @@ Before implementing any code or making architectural changes, you **MUST** consu
 
 ### D. Direct ClickHouse Micro-Batching & Idempotent State (ADR-003)
 - Persist evaluation run metadata (`evaluation_runs`) and point-in-time sample metrics (`eval_metric_points`) directly into ClickHouse using `ReplacingMergeTree` tables and client-side async buffering (1,000 records or 1.0s flush intervals).
-- Idempotent deduplication guarantees: repeated sample evaluations or retried workflow activities overwrite cleanly by `(tenant_id, run_id, metric_name, sample_idx)` without duplicate row accumulation.
+- **Read-Time Deduplication Contract**: `ReplacingMergeTree` performs deduplication asynchronously in background merges. All metric evaluators, quality gates, and downstream consumers MUST query using `FINAL` or an explicit version-aware query keyed by `(tenant_id, run_id, metric_name, sample_idx)` selecting the latest row by `created_at` (and `(tenant_id, run_id)` selecting latest `attempt`). All consumers are required to follow this contract to prevent processing unmerged duplicates.
 - Zero transactional dual-writes to relational databases.
 
 ### E. Temporal Heartbeat Reliability & Resumption
 - Temporal activity tasks polling `eval-task-queue` must emit heartbeats with the current `sample_idx` every 10 seconds.
-- On worker pod restart or preemption, the worker must inspect `activity.get_heartbeat_details()` and resume starting at sample $N+1$, ensuring 0 duplicate judge queries.
+- On worker pod restart or preemption, the worker must inspect `activity.get_heartbeat_details()` and resume from the last acknowledged checkpoint. Because a crash before heartbeat delivery may repeat sample $N$, judge execution follows at-least-once semantics; deduplication and idempotency are enforced at the ClickHouse persistence boundary via `(tenant_id, run_id, metric_name, sample_idx)` to guarantee zero duplicate persisted records.
 
 ### F. Outbound Judge Rate Limiting, Backpressure & Circuit Breaking
 - Outbound judge calls must pass through a token-bucket rate limiter (50 RPS) and concurrency semaphores (capped at 20 concurrent requests).

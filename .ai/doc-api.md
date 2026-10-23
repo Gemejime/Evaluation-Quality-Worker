@@ -31,16 +31,16 @@ The `/metrics` endpoint exposes runtime telemetry scraped by Prometheus collecto
 
 | Metric Identifier | Type | Labels | Description |
 | :--- | :--- | :--- | :--- |
-| `eval_batch_duration_seconds` | Histogram | `tenant_id`, `dataset_id`, `status` | Total duration of batch evaluation pipeline runs |
-| `eval_sample_execution_latency_seconds` | Histogram | `tenant_id`, `metric_name`, `judge_model` | Latency per single sample judge evaluation |
+| `eval_batch_duration_seconds` | Histogram | `status` | Total duration of batch evaluation pipeline runs (high-cardinality `tenant_id`/`dataset_id` retained in logs/exemplars) |
+| `eval_sample_execution_latency_seconds` | Histogram | `metric_name`, `judge_model` | Latency per single sample judge evaluation (tenant context tracked via exemplars/logs) |
 | `eval_judge_active_concurrency` | Gauge | `judge_model` | In-flight concurrent judge calls (capped by semaphore) |
 | `eval_judge_rate_limit_errors_total` | Counter | `judge_model`, `error_type` (429, exhausted) | Downstream judge rate-limit and backpressure occurrences |
-| `eval_metric_score_value` | Gauge | `tenant_id`, `metric_name`, `dataset_id` | Calculated score distributions per evaluation metric |
+| `eval_metric_score_value` | Gauge | `metric_name` | Aggregate score value per evaluation run (`tenant_id`/`dataset_id` tracked in logs/exemplars) |
 
 #### Operational Alert Rules
 - **Judge Quota Saturation (Severity: Warning)**: `rate(eval_judge_rate_limit_errors_total[5m]) > 0` (Triggers dynamic concurrency cap reduction).
 - **Activity Heartbeat Stalling (Severity: Page)**: Activity heartbeat latency exceeds 25 seconds (indicates blocked event loop or socket freeze).
-- **Evaluation Quality Drop (Severity: Warning)**: Aggregate faithfulness or context precision falls below platform release gates ($\tau < 0.82$).
+- **Evaluation Quality Drop (Severity: Warning)**: Aggregate faithfulness or context precision falls below 0.82 (violating the $\tau \ge 0.82$ platform release gate).
 
 ```json
 {
@@ -151,7 +151,7 @@ class RunEvaluationWorkflowOutput(BaseModel):
 - **Module**: `internal.temporal.activities`
 - **Queue**: `eval-task-queue`
 - **Heartbeat Timeout**: `30s` (Emits heartbeat every `10s` per evaluated sample)
-- **Zero-Recompute Checkpointing**: Checks `activity.get_heartbeat_details()` on startup. Resumes execution at sample `last_completed_idx + 1`.
+- **Zero-Recompute Checkpointing**: Checks `activity.get_heartbeat_details()` on startup. Resumes execution at the last acknowledged checkpoint. If a crash occurs before heartbeat emission, sample $N$ may re-execute (at-least-once), while ClickHouse deduplication ensures zero duplicate persisted rows.
 - **Fault Isolation & Dead Letter Queue (DLQ)**:
   - Poison-pill samples (schema parsing failures, unrecoverable judge timeouts after 5 retries, corrupted payloads) are captured into an evaluation dead-letter queue (DLQ) and increment `failed_samples_count`.
   - An individual sample failure NEVER fails the overall activity; processing continues seamlessly across remaining golden samples.
@@ -160,6 +160,7 @@ class RunEvaluationWorkflowOutput(BaseModel):
 ```python
 class GoldenSampleItem(BaseModel):
     sample_id: str
+    sample_idx: int  # Preserved from gRPC EvaluationSample to maintain stable deduplication key
     query: str
     retrieved_contexts: list[str]
     generated_answer: str
@@ -206,6 +207,7 @@ class EvaluateGoldenSetResult(BaseModel):
 - **Formula**:
   $$\text{Context Precision@K} = \frac{\sum_{k=1}^K (\text{Precision@}k \times v_k)}{\text{Total Relevant Chunks in Top } K}$$
   where $v_k \in \{0, 1\}$ is the judge binary relevance verdict.
+  *Zero Relevant Chunks Contract*: When no retrieved chunks in the top-$K$ are relevant ($\text{Total Relevant Chunks in Top } K = 0$), $\text{Context Precision@K}$ is defined as `0.0`, failing the $\tau \ge 0.82$ quality gate.
 
 ### B. Faithfulness / Groundedness (`faithfulness.py`)
 - **Objective**: Verifies that all factual claims made in the generated answer are strictly grounded in the retrieved contexts without hallucination.
@@ -225,6 +227,7 @@ class EvaluateGoldenSetResult(BaseModel):
   ```
 - **Formula**:
   $$\text{Faithfulness} = \frac{|\text{Supported Claims}|}{|\text{Total Extracted Claims}|}$$
+  *Zero Extracted Claims Contract*: When Total Extracted Claims is zero ($|\text{Total Extracted Claims}| = 0$, e.g., the answer contains no factual assertions), Faithfulness is defined as `1.0` (absence of unsupported claims); for nonzero claim counts, the standard ratio applies.
 
 ### C. Answer Relevance (`answer_relevance.py`)
 - **Objective**: Measures whether the generated answer directly addresses the original query without superfluous or divergent information.
@@ -256,8 +259,9 @@ CREATE TABLE IF NOT EXISTS evaluation_runs (
     avg_answer_relevance Float32,
     duration_seconds Float32,
     status LowCardinality(String),
+    attempt UInt32 DEFAULT 1,
     created_at DateTime DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplacingMergeTree(attempt)
 PARTITION BY toYYYYMM(run_date)
 ORDER BY (tenant_id, run_id);
 ```
@@ -281,8 +285,9 @@ PARTITION BY toYYYYMM(run_date)
 ORDER BY (tenant_id, run_id, metric_name, sample_idx);
 ```
 
-> **Idempotency & Hash Contract**:
-> - `ENGINE = ReplacingMergeTree(created_at)` guarantees idempotent deduplication: re-evaluating or retrying sample $N$ overwrites previous attempts with identical composite keys `(tenant_id, run_id, metric_name, sample_idx)`.
+> **Idempotency & Read Deduplication Contract**:
+> - `ENGINE = ReplacingMergeTree` tables (`evaluation_runs` keyed by `(tenant_id, run_id)` with monotonic `attempt`, and `eval_metric_points` keyed by `(tenant_id, run_id, metric_name, sample_idx)` with `created_at`) perform deduplication asynchronously during background merges; they do **NOT** provide immediate write-time idempotency.
+> - Readers querying current state (including metric evaluators and quality-gate consumers) **MUST** query with `FINAL` (e.g. `SELECT ... FROM eval_metric_points FINAL WHERE tenant_id = ... AND run_id = ...`) or an equivalent version-aware deduplication aggregation (e.g., `argMax(...) GROUP BY (tenant_id, run_id, metric_name, sample_idx)`) to select the latest row and prevent seeing duplicate pre-merge attempts.
 > - `reasoning_hash FixedString(64)` preserves the full 64-character SHA-256 hexadecimal digest for forensic auditability and deduplication in storage. Application structured logs output only the truncated 16-character prefix (`reasoning_hash = sha256(reasoning)[:16]`) to prevent log bloat.
 
 ---

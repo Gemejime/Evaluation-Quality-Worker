@@ -30,7 +30,7 @@
    - Per-sample parsing errors, malformed triplets, or judge timeouts exceeding max retries are quarantined to a sample Dead-Letter Queue (DLQ) and increment `failed_samples_count`. Poison-pill samples do not crash the batch activity.
 2. **Memory Safety & Resource Caps**:
    - `jemalloc` (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so`) must be active in production to prevent glibc heap fragmentation during string manipulation.
-   - Enforce pod memory limits (Request: 2.0 GiB, Limit: 3.5 GiB) ensuring RSS stays bounded $\le 2.0$ GiB under prolonged execution.
+   - Enforce pod memory allocations (Request: 2.0 GiB, Limit: 3.5 GiB); jemalloc prevents heap fragmentation to maintain steady-state RSS $\le 2.0$ GiB under prolonged execution, while the 3.5 GiB limit provides headroom for transient batch allocations before OOM termination.
 
 ---
 

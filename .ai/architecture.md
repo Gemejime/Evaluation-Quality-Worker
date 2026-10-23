@@ -18,7 +18,7 @@
 
 ## Production-Grade 5-Layer Backend Architecture
 
-Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/Production%20Grade%20Backend%20Concepts.pdf):
+Aligned with [Production Grade Backend Concepts.pdf](tasks/Production%20Grade%20Backend%20Concepts.pdf):
 
 ### Layer 1: API & Routing
 - **Entry Points (`cmd/worker/main.py`)**:
@@ -38,7 +38,7 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 - **Input Validation & Sanitization**:
   - Strict Pydantic v2 schemas validating incoming evaluation jobs, sample records, query/context/ground-truth triplets, and judge model JSON responses.
 - **Rate Limiting, Throttling & Circuit Breaking**:
-  - Client-side token-bucket rate limiter (50 RPS) and concurrency semaphores (`JUDGE_MAX_CONCURRENT_REQUESTS=20`) to prevent overwhelming Triton/vLLM serving clusters.
+  - Client-side token-bucket rate limiter (50 RPS) and concurrency semaphores (`JUDGE_MAX_CONCURRENT_REQUESTS=20`) operate per pod. Across the KEDA autoscaling fleet (up to 8 replicas), per-pod limits must be budgeted proportionally (e.g., configuring per-pod caps to $\le 2$ concurrent requests and 6 RPS at peak 8 replicas, or deploying a shared distributed governor) to keep aggregate judge traffic within downstream Triton/vLLM serving capacity.
   - Automatic backpressure with exponential full jitter on downstream HTTP 429 / `RESOURCE_EXHAUSTED`.
   - Circuit breaker trips after 5 consecutive downstream judge failures with a 30s reset timeout to prevent cascaded thread exhaustion.
 - **Idempotency**:
@@ -48,14 +48,14 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 - **ClickHouse Unified Persistence & Idempotency (ADR-003)**:
   - Eliminates dual-writes to relational databases (PostgreSQL removed).
   - Table `evaluation_runs`: Run-level execution metadata, status, sample count, aggregate scores, and duration (`ENGINE = ReplacingMergeTree()`).
-  - Table `eval_metric_points`: Sample-level point-in-time metric evaluations (`ENGINE = ReplacingMergeTree(created_at)`) partitioned by `toYYYYMM(run_date)` and ordered by `(tenant_id, run_id, metric_name, sample_idx)`. Repeated evaluations or retried activity attempts overwrite cleanly without duplicate row accumulation.
+  - Table `eval_metric_points`: Sample-level point-in-time metric evaluations (`ENGINE = ReplacingMergeTree(created_at)`) partitioned by `toYYYYMM(run_date)` and ordered by `(tenant_id, run_id, metric_name, sample_idx)`. ReplacingMergeTree retains the latest `created_at` version per ordering key upon background merges, while unmerged reads may return multiple versions; readers must use `FINAL` or an equivalent version-aware query to guarantee deduplicated reads.
   - Forensic Hash Integrity: ClickHouse persists the full 64-character SHA-256 digest (`FixedString(64)`), while application logs redact it to 16 characters (`[:16]`).
 - **Direct Micro-Batching & Buffering**:
   - Client-side async buffer micro-batches metric insertions (1,000 records or 1.0s flush interval), eliminating small part fragmentation in ClickHouse.
 - **Connection Pooling**:
   - Managed ClickHouse TCP/Native client pool with active health ping and bounded maximum connections.
 - **Resource Identification Strategies**:
-  - High-entropy ULIDs/UUIDv4 for `run_id`, `sample_id`, and `evaluation_id` preventing enumeration attacks.
+  - High-entropy ULIDs/UUIDv4 for `run_id`, `sample_id`, and `evaluation_id` prevent unauthenticated identifier enumeration but do not authorize access; every read and write operation must strictly enforce tenant and object-level authorization checks.
 
 ### Layer 3: Architecture & Scale
 - **Asynchronous Task Queues & Workers**:
@@ -92,10 +92,10 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 - **Alert Rules**:
   - *Judge Quota Saturation (Warning)*: `rate(eval_judge_rate_limit_errors_total[5m]) > 0`.
   - *Activity Heartbeat Stalling (Page)*: Activity heartbeat latency exceeds 25 seconds.
-  - *Evaluation Quality Drop (Warning)*: Aggregate faithfulness or context_precision falls below $\tau < 0.82$.
+  - *Evaluation Quality Drop (Warning)*: Aggregate faithfulness or context_precision falls below 0.82 (violating the $\tau \ge 0.82$ quality gate).
 - **Per-Sample Heartbeat Resumption**:
   - Activities emit Temporal heartbeats every 10 seconds containing current sample index checkpoint.
-  - If a worker is terminated (e.g. SIGKILL at sample 47), the restarted worker resumes at sample 48 with zero duplicate judge queries.
+  - If a worker is terminated (e.g. SIGKILL at sample 47), a restarted worker resumes at the last acknowledged checkpoint. Because a crash before heartbeat delivery may re-execute sample $N$, judge calls follow at-least-once semantics, while ClickHouse deduplication via `(tenant_id, run_id, metric_name, sample_idx)` guarantees zero duplicate persisted rows.
 - **Fault Isolation & Sample-Level DLQ**:
   - Corrupted or unparseable samples and samples that persistently fail downstream judge queries (exceeding max retries) are isolated to a Dead-Letter Queue (DLQ) and logged in `failed_samples_count`.
   - The evaluation activity continues processing the remaining valid samples to ensure complete golden-set evaluation runs without batch abortion.
