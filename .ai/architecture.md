@@ -22,32 +22,34 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 
 ### Layer 1: API & Routing
 - **Entry Points (`cmd/worker/main.py`)**:
-  - Initializes runtime environment, validates configuration via Pydantic Settings, establishes ClickHouse connection pools, and bootstraps the Temporal activity worker daemon.
-  - Launches the lightweight FastAPI HTTP server concurrently on port `8080`.
+  - Initializes runtime environment, validates configuration via Pydantic Settings, establishes ClickHouse connection pools, and bootstraps the Temporal activity worker daemon (`eval-task-queue`).
+  - Concurrently launches the lightweight FastAPI HTTP probe server on port `8080` (`/healthz`, `/ready`, `/docs`, `/metrics`).
+  - Concurrently binds the gRPC server on port `50051` exposing `rag.eval.v1.EvaluationWorkerService` (`EvaluateBatch`, `GetRunStatus`).
 - **Endpoints & Routing**:
   - `GET /docs`: Interactive Swagger UI powered by OpenAPI 3.1.
   - `GET /redoc`: Interactive ReDoc UI.
   - `GET /api/docs` & `GET /openapi.json`: Machine-readable OpenAPI 3.1 JSON specification.
   - `GET /healthz`: Liveness probe verifying worker event loop health.
   - `GET /ready`: Readiness probe verifying ClickHouse connectivity, judge endpoint reachability, and Temporal queue polling.
-  - `GET /metrics`: Prometheus telemetry scrape endpoint.
+  - `GET /metrics`: Prometheus telemetry scrape endpoint exposing histograms, gauges, and counters.
 - **Middleware & Interception**:
-  - Request ID tracing middleware assigning ULIDs to every operational probe and webhook.
-  - Structured logging middleware capturing request duration and response codes.
+  - Request ID tracing middleware assigning ULIDs to every operational probe and RPC.
+  - Structured logging middleware capturing request duration, tenant ID, and response codes.
 - **Input Validation & Sanitization**:
   - Strict Pydantic v2 schemas validating incoming evaluation jobs, sample records, query/context/ground-truth triplets, and judge model JSON responses.
-- **Rate Limiting & Throttling**:
-  - Client-side token-bucket rate limiter and concurrency semaphores (`JUDGE_MAX_CONCURRENT_REQUESTS=20`) to prevent overwhelming Triton/vLLM serving clusters.
+- **Rate Limiting, Throttling & Circuit Breaking**:
+  - Client-side token-bucket rate limiter (50 RPS) and concurrency semaphores (`JUDGE_MAX_CONCURRENT_REQUESTS=20`) to prevent overwhelming Triton/vLLM serving clusters.
   - Automatic backpressure with exponential full jitter on downstream HTTP 429 / `RESOURCE_EXHAUSTED`.
+  - Circuit breaker trips after 5 consecutive downstream judge failures with a 30s reset timeout to prevent cascaded thread exhaustion.
 - **Idempotency**:
   - Batch evaluation runs and sample evaluations are keyed by unique `(tenant_id, run_id, sample_idx)`. Checkpoint resumption skips previously evaluated samples without duplicate judge calls.
 
 ### Layer 2: Data Persistence & State
-- **ClickHouse Unified Persistence (ADR-003)**:
+- **ClickHouse Unified Persistence & Idempotency (ADR-003)**:
   - Eliminates dual-writes to relational databases (PostgreSQL removed).
-  - Table `evaluation_runs`: Run-level execution metadata, status, sample count, aggregate scores, and duration.
-  - Table `eval_metric_points`: Sample-level point-in-time metric evaluations (context precision, faithfulness, answer relevance, latency, token usage).
-  - Storage Engine: `MergeTree` partitioned by `toYYYYMM(run_date)` and ordered by `(tenant_id, run_id, metric_name, sample_idx)`.
+  - Table `evaluation_runs`: Run-level execution metadata, status, sample count, aggregate scores, and duration (`ENGINE = ReplacingMergeTree()`).
+  - Table `eval_metric_points`: Sample-level point-in-time metric evaluations (`ENGINE = ReplacingMergeTree(created_at)`) partitioned by `toYYYYMM(run_date)` and ordered by `(tenant_id, run_id, metric_name, sample_idx)`. Repeated evaluations or retried activity attempts overwrite cleanly without duplicate row accumulation.
+  - Forensic Hash Integrity: ClickHouse persists the full 64-character SHA-256 digest (`FixedString(64)`), while application logs redact it to 16 characters (`[:16]`).
 - **Direct Micro-Batching & Buffering**:
   - Client-side async buffer micro-batches metric insertions (1,000 records or 1.0s flush interval), eliminating small part fragmentation in ClickHouse.
 - **Connection Pooling**:
@@ -94,6 +96,9 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 - **Per-Sample Heartbeat Resumption**:
   - Activities emit Temporal heartbeats every 10 seconds containing current sample index checkpoint.
   - If a worker is terminated (e.g. SIGKILL at sample 47), the restarted worker resumes at sample 48 with zero duplicate judge queries.
+- **Fault Isolation & Sample-Level DLQ**:
+  - Corrupted or unparseable samples and samples that persistently fail downstream judge queries (exceeding max retries) are isolated to a Dead-Letter Queue (DLQ) and logged in `failed_samples_count`.
+  - The evaluation activity continues processing the remaining valid samples to ensure complete golden-set evaluation runs without batch abortion.
 
 ---
 

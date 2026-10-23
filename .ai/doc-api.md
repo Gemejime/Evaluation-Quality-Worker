@@ -25,7 +25,22 @@ The worker process (`rag-eval-worker`) runs an internal FastAPI ASGI server (def
 | `/ready` | `GET` | `application/json` | Readiness probe verifying ClickHouse, Judge endpoints, and Temporal queue |
 | `/metrics` | `GET` | `text/plain` | Prometheus metrics scrape endpoint |
 
-### OpenAPI Root Info Schema
+### Prometheus Observability & Metrics Contract
+
+The `/metrics` endpoint exposes runtime telemetry scraped by Prometheus collectors:
+
+| Metric Identifier | Type | Labels | Description |
+| :--- | :--- | :--- | :--- |
+| `eval_batch_duration_seconds` | Histogram | `tenant_id`, `dataset_id`, `status` | Total duration of batch evaluation pipeline runs |
+| `eval_sample_execution_latency_seconds` | Histogram | `tenant_id`, `metric_name`, `judge_model` | Latency per single sample judge evaluation |
+| `eval_judge_active_concurrency` | Gauge | `judge_model` | In-flight concurrent judge calls (capped by semaphore) |
+| `eval_judge_rate_limit_errors_total` | Counter | `judge_model`, `error_type` (429, exhausted) | Downstream judge rate-limit and backpressure occurrences |
+| `eval_metric_score_value` | Gauge | `tenant_id`, `metric_name`, `dataset_id` | Calculated score distributions per evaluation metric |
+
+#### Operational Alert Rules
+- **Judge Quota Saturation (Severity: Warning)**: `rate(eval_judge_rate_limit_errors_total[5m]) > 0` (Triggers dynamic concurrency cap reduction).
+- **Activity Heartbeat Stalling (Severity: Page)**: Activity heartbeat latency exceeds 25 seconds (indicates blocked event loop or socket freeze).
+- **Evaluation Quality Drop (Severity: Warning)**: Aggregate faithfulness or context precision falls below platform release gates ($\tau < 0.82$).
 
 ```json
 {
@@ -137,6 +152,10 @@ class RunEvaluationWorkflowOutput(BaseModel):
 - **Queue**: `eval-task-queue`
 - **Heartbeat Timeout**: `30s` (Emits heartbeat every `10s` per evaluated sample)
 - **Zero-Recompute Checkpointing**: Checks `activity.get_heartbeat_details()` on startup. Resumes execution at sample `last_completed_idx + 1`.
+- **Fault Isolation & Dead Letter Queue (DLQ)**:
+  - Poison-pill samples (schema parsing failures, unrecoverable judge timeouts after 5 retries, corrupted payloads) are captured into an evaluation dead-letter queue (DLQ) and increment `failed_samples_count`.
+  - An individual sample failure NEVER fails the overall activity; processing continues seamlessly across remaining golden samples.
+  - Only catastrophic infrastructure failures (ClickHouse connection drop, Temporal activity cancellation) raise non-retryable `ApplicationError`.
 
 ```python
 class GoldenSampleItem(BaseModel):
@@ -257,10 +276,14 @@ CREATE TABLE IF NOT EXISTS eval_metric_points (
     execution_latency_ms UInt32,
     judge_model LowCardinality(String),
     created_at DateTime DEFAULT now()
-) ENGINE = MergeTree()
+) ENGINE = ReplacingMergeTree(created_at)
 PARTITION BY toYYYYMM(run_date)
 ORDER BY (tenant_id, run_id, metric_name, sample_idx);
 ```
+
+> **Idempotency & Hash Contract**:
+> - `ENGINE = ReplacingMergeTree(created_at)` guarantees idempotent deduplication: re-evaluating or retrying sample $N$ overwrites previous attempts with identical composite keys `(tenant_id, run_id, metric_name, sample_idx)`.
+> - `reasoning_hash FixedString(64)` preserves the full 64-character SHA-256 hexadecimal digest for forensic auditability and deduplication in storage. Application structured logs output only the truncated 16-character prefix (`reasoning_hash = sha256(reasoning)[:16]`) to prevent log bloat.
 
 ---
 
@@ -328,7 +351,8 @@ message GetRunStatusResponse {
 class Settings(BaseSettings):
     # Service Identifiers
     SERVICE_NAME: str = "rag-eval-governance-worker"
-    PORT: int = 8080
+    PORT: int = 8080  # Internal FastAPI ASGI Doc API & Probes
+    GRPC_PORT: int = 50051  # Internal gRPC EvaluationWorkerService
     HOST: str = "0.0.0.0"
     ENVIRONMENT: str = "production"
 
@@ -347,6 +371,16 @@ class Settings(BaseSettings):
     JUDGE_REQUEST_TIMEOUT_SECONDS: float = 45.0
     JUDGE_429_MAX_RETRIES: int = 5
 
+    # Outbound Circuit Breaker & Exponential Backoff
+    JUDGE_CB_FAILURE_THRESHOLD: int = 5
+    JUDGE_CB_RESET_TIMEOUT_SECONDS: float = 30.0
+    JUDGE_BACKOFF_BASE_SECONDS: float = 1.0
+    JUDGE_BACKOFF_MAX_SECONDS: float = 30.0
+
+    # Prompt Registry Integration (Fallback to native templates if unreachable)
+    PROMPT_REGISTRY_URL: str = "http://rag-prompt-registry-service:8080"
+    PROMPT_REGISTRY_TIMEOUT_SECONDS: float = 5.0
+
     # ClickHouse Persistence Settings
     CLICKHOUSE_HOST: str = "clickhouse.storage.svc.cluster.local"
     CLICKHOUSE_PORT: int = 9000
@@ -360,8 +394,4 @@ class Settings(BaseSettings):
     QUALITY_GATE_MIN_FAITHFULNESS: float = 0.82
     QUALITY_GATE_MIN_CONTEXT_PRECISION: float = 0.82
     QUALITY_GATE_MIN_ANSWER_RELEVANCE: float = 0.82
-
-    # KMS & Masking Settings (if needed for audit)
-    KMS_KEY_ID: str = ""
-    HASH_SALT_CACHE_TTL_SECONDS: int = 3600
 ```

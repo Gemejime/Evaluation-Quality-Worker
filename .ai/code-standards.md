@@ -25,10 +25,11 @@
 
 ## Concurrency, Rate Limiting & Heartbeat Invariants
 
-1. **Judge Concurrency Governor**:
+1. **Judge Concurrency Governor & Circuit Breaker**:
    - Outbound judge requests to Triton/vLLM must pass through client-side concurrency semaphores (`JUDGE_MAX_CONCURRENT_REQUESTS=20`).
    - Token bucket algorithm controls requests per second (`JUDGE_RATE_LIMIT_RPS=50.0`).
-   - On HTTP 429 / `RESOURCE_EXHAUSTED`, apply exponential backoff with full jitter to avoid stampeding downstream inference pools.
+   - On HTTP 429 / `RESOURCE_EXHAUSTED`, apply exponential backoff with full jitter (`JUDGE_BACKOFF_BASE_SECONDS=1.0`, `JUDGE_BACKOFF_MAX_SECONDS=30.0`).
+   - Outbound circuit breaker trips after 5 consecutive downstream failures, halting requests for 30s to allow downstream serving recovery without thrashing worker threads.
 2. **Heartbeat Continuity & Checkpointing**:
    - Temporal activity workers must emit heartbeats with current `sample_idx` every 10 seconds.
    - On worker preemption or pod restart, `activity.get_heartbeat_details()` is inspected to resume at sample $N+1$, ensuring 0 duplicate judge queries.
@@ -37,13 +38,14 @@
 
 ---
 
-## ClickHouse Micro-Batching Invariants
+## ClickHouse Micro-Batching & Idempotency Invariants
 
 1. **Client-Side Buffering**:
    - Write metric records to ClickHouse via client-side async buffer flushing at 1,000 records or 1.0s flush intervals.
    - Raw single-row inserts are strictly prohibited to avoid creating excessive detached parts in ClickHouse.
-2. **Unified Persistence (ADR-003)**:
-   - Relational PostgreSQL run tracking is removed. All run metadata (`evaluation_runs`) and sample-level metric points (`eval_metric_points`) reside in ClickHouse MergeTree tables.
+2. **Unified Persistence & Deduplication (ADR-003)**:
+   - Relational PostgreSQL run tracking is removed. All run metadata (`evaluation_runs`) and sample-level metric points (`eval_metric_points`) reside in ClickHouse `ReplacingMergeTree` tables.
+   - `eval_metric_points` uses `ReplacingMergeTree(created_at)` ordered by `(tenant_id, run_id, metric_name, sample_idx)` to guarantee idempotent re-runs.
 
 ---
 
@@ -58,7 +60,7 @@
   - `judge_model`
 - **Security Invariant (Secured Logging)**:
   - **Strict Redaction**: Never log raw golden-set prompt texts, retrieved document context spans, generated answers, PII/PHI, KMS salts, API tokens, or bearer headers.
-  - Emit only lengths, hashes (`reasoning_hash = sha256(reasoning)[:16]`), or scores.
+  - Emit only lengths, truncated hashes (`reasoning_hash = sha256(reasoning)[:16]`), or scores (the full 64-character SHA-256 hex digest is retained strictly in ClickHouse storage for forensic auditing).
   - Error logs must sanitize internal system paths and database connection credentials.
 
 ---

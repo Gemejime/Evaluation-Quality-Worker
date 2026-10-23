@@ -19,15 +19,15 @@
    - Database credentials, KMS salts, Temporal authentication tokens, and Triton gRPC bearer tokens must be intercepted and masked before any log emission.
 3. **Structured Machine-Readable Output**:
    - Log entries must be structured JSON logs containing only metadata IDs (`tenant_id`, `run_id`, `sample_idx`, `metric_name`, `score`, `duration_ms`), never raw binary or sensitive text payloads.
-   - For reasoning tracking, log only truncated SHA-256 hashes (`reasoning_hash = sha256(reasoning.encode())[:16]`).
+   - For reasoning tracking in stdout/telemetry, log only truncated SHA-256 hashes (`reasoning_hash = sha256(reasoning.encode())[:16]`). The full 64-character SHA-256 hexadecimal digest is stored strictly in ClickHouse `eval_metric_points` for forensic deduplication.
 
 ---
 
-## Input Quarantine & Memory Protection
+## Input Quarantine, DLQ & Memory Protection
 
-1. **Malformed Input Quarantine**:
-   - Batches or samples failing JSON schema validation or containing unsupported metric definitions must trigger non-retryable Temporal `ApplicationError` exceptions with error reason `INVALID_EVALUATION_INPUT`.
-   - Never allow corrupted inputs to trigger infinite retry loops that saturate judge inference quotas.
+1. **Malformed Input Quarantine & Sample DLQ**:
+   - Batch-level configuration errors or unsupported metric names trigger non-retryable Temporal `ApplicationError` exceptions with error reason `INVALID_EVALUATION_INPUT` to prevent retry loops.
+   - Per-sample parsing errors, malformed triplets, or judge timeouts exceeding max retries are quarantined to a sample Dead-Letter Queue (DLQ) and increment `failed_samples_count`. Poison-pill samples do not crash the batch activity.
 2. **Memory Safety & Resource Caps**:
    - `jemalloc` (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so`) must be active in production to prevent glibc heap fragmentation during string manipulation.
    - Enforce pod memory limits (Request: 2.0 GiB, Limit: 3.5 GiB) ensuring RSS stays bounded $\le 2.0$ GiB under prolonged execution.
