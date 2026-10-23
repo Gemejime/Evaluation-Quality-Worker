@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-- **Phase 1: Split Repositories, Ingestion Sanitizer & Foundation Setup** (In Progress)
+- **Phase 1: Repository Decoupling & Batch Eval Worker Foundation** (In Progress)
 
 ## Current Goal
 
-- Establish microservice foundation for `rag-eval-governance-worker` (`rag-eval-worker` batch runner and `rag-masking-sanitizer`), configure CI/CD workflows, build context invariants, and prepare for lean eval runner implementation.
+- Establish microservice foundation for `rag-eval-governance-worker` (implementing `rag-eval-worker`), configure CI/CD workflows, build context invariants, and prepare for lean eval runner and ClickHouse sink implementation (ingestion masking is isolated to `rag-masking-sanitizer` repository per ADR-001).
 
 ---
 
@@ -14,10 +14,10 @@
 
 | Phase | Timeline | Focus Area | Deliverables & Exit Criteria | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Phase 1** | Weeks 1–2 | Stream Masking & Repository Foundation | • `.gitignore` and `.github/workflows/ci.yml` established.<br>• Full `.ai` context and `GEMINI.MD` aligned with backend concepts.<br>• Standalone `rag-masking-sanitizer` service specification.<br>• Two-tier scanning engine (Aho-Corasick + selective Presidio).<br>• KMS salt derivation verified with zero plaintext leakage in telemetry. | 🟡 Active |
-| **Phase 2** | Weeks 3–4 | Lean Eval Runner & Direct ClickHouse Sink | • Native prompt-based judge adapter targeting Triton/vLLM endpoints.<br>• Implementation of core RAG triad metrics with structured JSON schemas (Faithfulness, Context Precision, Answer Relevance).<br>• Direct micro-batched ClickHouse writer with buffer tables (`evaluation_runs`, `eval_metric_points`). | ⚪ Queued |
-| **Phase 3** | Weeks 5–6 | Temporal Task Queues & Rate Limiting | • Temporal activity runner (`eval-task-queue`) with per-sample 10s heartbeating and DLQ isolation.<br>• Token-bucket rate limiter enforcing outbound judge concurrency caps (max 20).<br>• CI/CD webhook trigger integrating golden-set regression gates ($\tau \ge 0.82$). | ⚪ Queued |
-| **Phase 4** | Weeks 7–8 | Chaos Hardening & Benchmarking | • Presidio CPU latency profiling across real enterprise chunks on c6i.2xlarge.<br>• Simulated judge 429 flood testing verifying non-blocking queue pause and resumption.<br>• 12-hour soak testing under `jemalloc` validating RSS stability below 2.0 GiB. | ⚪ Queued |
+| **Phase 1** | Weeks 1–2 | Decoupling & Batch Worker Foundation | • `.gitignore` and `.github/workflows/ci.yml` established.<br>• Full `.ai` context and `GEMINI.MD` aligned with backend concepts & ADR-001.<br>• Protobuf v3 contract (`api/proto/v1/eval_worker.proto`) defined.<br>• Packaging and dependency environment configured (`pyproject.toml`, Dockerfile with `jemalloc`).<br>• FastAPI probe server skeleton (`/healthz`, `/ready`, `/docs`, `/metrics`). | 🟡 Active |
+| **Phase 2** | Weeks 3–4 | Lean Eval Runner & Direct ClickHouse Sink | • Native prompt-based judge adapter targeting Triton/vLLM endpoints (with fallback to `rag-prompt-registry-service`).<br>• Implementation of core RAG triad metrics with structured JSON schemas (Faithfulness, Context Precision, Answer Relevance).<br>• Direct micro-batched ClickHouse writer with buffer tables (`evaluation_runs`, `eval_metric_points` with `ReplacingMergeTree`). | ⚪ Queued |
+| **Phase 3** | Weeks 5–6 | Temporal Task Queues, Rate Limiting & DLQ | • Temporal activity runner (`eval-task-queue`) with per-sample 10s heartbeating and DLQ fault isolation.<br>• Token-bucket rate limiter enforcing outbound judge concurrency caps (max 20) with exponential backoff and circuit breaker.<br>• CI/CD webhook trigger integrating golden-set regression gates ($\tau \ge 0.82$). | ⚪ Queued |
+| **Phase 4** | Weeks 7–8 | Chaos Hardening & Benchmarking | • Evaluation throughput benchmarks: 100-sample golden set $P95 \le 180$s on `c6i.2xlarge`.<br>• Simulated judge 429 flood testing verifying circuit breaker trip, non-blocking queue pause, and jittered resumption.<br>• 12-hour soak testing under `jemalloc` validating RSS stability below 2.0 GiB. | ⚪ Queued |
 
 ---
 

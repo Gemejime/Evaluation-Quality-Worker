@@ -1,6 +1,6 @@
 # GEMINI Master Directive - RAG Evaluation & Governance Worker
 
-You are working on **`rag-eval-governance-worker`** (Evaluation & Quality Worker), a high-reliability Python compute microservice that executes offline and asynchronous golden-set evaluation pipelines (Context Precision, Faithfulness, Answer Relevance), runs deterministic PII/PHI tokenization/masking prior to vectorization, and micro-batches evaluation records directly into ClickHouse.
+You are working on **`rag-eval-governance-worker`** (Evaluation & Quality Worker), a high-reliability Python compute microservice that implements the batch evaluation worker (`rag-eval-worker`). It executes offline and asynchronous golden-set evaluation pipelines (Context Precision, Faithfulness, Answer Relevance), governs judge concurrency with token-bucket governors, micro-batches evaluation records directly into ClickHouse, and isolates ingestion-time masking to the discrete `rag-masking-sanitizer` microservice repository (ADR-001).
 
 ---
 
@@ -28,25 +28,31 @@ Before implementing any code or making architectural changes, you **MUST** consu
 ### B. Secured Logging
 - **MANDATORY**: All logs emitted must be structured JSON.
 - **STRICT REDACTION**: Customer Personally Identifiable Information (PII), Protected Health Information (PHI), raw golden-set prompt texts, retrieved document context passages, generated answers, authorization headers, presigned URLs, and KMS salts must be strictly redacted prior to log emission.
-- Diagnostic logs must only output hashes (`reasoning_hash = sha256(reasoning)[:16]`), token counts, scores, and execution latencies.
+- Diagnostic logs must only output truncated hashes (`reasoning_hash = sha256(reasoning)[:16]`), token counts, scores, and execution latencies (full 64-character SHA-256 hash is preserved in ClickHouse for audit trails).
 
 ### C. Standardized Lean Evaluation Engine (ADR-002)
-- Execute native, version-controlled prompt templates for Context Precision, Faithfulness/Groundedness, and Answer Relevance directly against Triton/vLLM endpoints (`rag-inference-serving`).
+- Execute native, version-controlled prompt templates for Context Precision, Faithfulness/Groundedness, and Answer Relevance directly against Triton/vLLM endpoints (`rag-inference-serving`), with optional dynamic template retrieval from `rag-prompt-registry-service`.
 - Heavy external evaluation frameworks (Ragas, TruLens) are strictly excluded from runtime dependencies to eliminate package conflicts and unbounded heap growth.
 
-### D. Direct ClickHouse Micro-Batching (ADR-003)
-- Persist evaluation run metadata (`evaluation_runs`) and point-in-time sample metrics (`eval_metric_points`) directly into ClickHouse MergeTree tables using client-side async buffering (1,000 records or 1.0s flush intervals).
+### D. Direct ClickHouse Micro-Batching & Idempotent State (ADR-003)
+- Persist evaluation run metadata (`evaluation_runs`) and point-in-time sample metrics (`eval_metric_points`) directly into ClickHouse using `ReplacingMergeTree` tables and client-side async buffering (1,000 records or 1.0s flush intervals).
+- Idempotent deduplication guarantees: repeated sample evaluations or retried workflow activities overwrite cleanly by `(tenant_id, run_id, metric_name, sample_idx)` without duplicate row accumulation.
 - Zero transactional dual-writes to relational databases.
 
 ### E. Temporal Heartbeat Reliability & Resumption
 - Temporal activity tasks polling `eval-task-queue` must emit heartbeats with the current `sample_idx` every 10 seconds.
 - On worker pod restart or preemption, the worker must inspect `activity.get_heartbeat_details()` and resume starting at sample $N+1$, ensuring 0 duplicate judge queries.
 
-### F. Outbound Judge Rate Limiting & Backpressure
-- Outbound judge calls must pass through a token-bucket rate limiter and concurrency semaphores (capped at 20 concurrent requests).
+### F. Outbound Judge Rate Limiting, Backpressure & Circuit Breaking
+- Outbound judge calls must pass through a token-bucket rate limiter (50 RPS) and concurrency semaphores (capped at 20 concurrent requests).
 - Apply exponential backoff with full jitter on HTTP 429 / `RESOURCE_EXHAUSTED` responses.
+- Implement an outbound circuit breaker (tripping after 5 consecutive downstream judge failures, 30s recovery window) to fail gracefully without crashing active workers.
 
-### G. Memory Bounds
+### G. Fault Isolation & Sample-Level DLQ
+- Per-sample parsing errors or unrecoverable judge timeouts must be quarantined into a dead-letter queue (DLQ) and increment `failed_samples_count`.
+- Poison-pill samples must NEVER crash the entire batch evaluation activity; the activity continues processing remaining valid samples.
+
+### H. Memory Bounds
 - Flat Resident Set Size (RSS) $\le 2.0$ GiB per eval worker under prolonged execution using `jemalloc` preloading (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so`).
 
 ---
