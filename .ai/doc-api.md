@@ -135,6 +135,7 @@ class RunEvaluationWorkflowInput(BaseModel):
     eval_metrics: list[str] = ["context_precision", "faithfulness", "answer_relevance"]
     judge_model: str = "meta-llama/Llama-3.1-70B-Instruct"
 
+
 class RunEvaluationWorkflowOutput(BaseModel):
     tenant_id: str
     run_id: str
@@ -166,11 +167,13 @@ class GoldenSampleItem(BaseModel):
     generated_answer: str
     ground_truth: str | None = None
 
+
 class EvaluateGoldenSetInput(BaseModel):
     tenant_id: str
     run_id: str
     samples: list[GoldenSampleItem]
     concurrency_limit: int = 20
+
 
 class EvaluationHeartbeatDetails(BaseModel):
     tenant_id: str
@@ -180,6 +183,7 @@ class EvaluationHeartbeatDetails(BaseModel):
     current_sample_id: str
     completed_samples: int
     last_checkpoint_timestamp_utc: str
+
 
 class EvaluateGoldenSetResult(BaseModel):
     tenant_id: str

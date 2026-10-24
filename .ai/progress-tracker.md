@@ -14,8 +14,8 @@
 
 | Phase | Timeline | Focus Area | Deliverables & Exit Criteria | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Phase 1** | Weeks 1–2 | Decoupling & Batch Worker Foundation | • `.gitignore` and `.github/workflows/ci.yml` established.<br>• Full `.ai` context and `GEMINI.MD` aligned with backend concepts & ADR-001.<br>• Protobuf v3 contract (`api/proto/v1/eval_worker.proto`) defined.<br>• Packaging and dependency environment configured (`pyproject.toml`, Dockerfile with `jemalloc`).<br>• FastAPI probe server skeleton (`/healthz`, `/ready`, `/docs`, `/metrics`). | 🟡 Active |
-| **Phase 2** | Weeks 3–4 | Lean Eval Runner & Direct ClickHouse Sink | • Native prompt-based judge adapter targeting Triton/vLLM endpoints (with fallback to `rag-prompt-registry-service`).<br>• Implementation of core RAG triad metrics with structured JSON schemas (Faithfulness, Context Precision, Answer Relevance).<br>• Direct micro-batched ClickHouse writer with buffer tables (`evaluation_runs`, `eval_metric_points` with `ReplacingMergeTree`). | ⚪ Queued |
+| **Phase 1** | Weeks 1–2 | Decoupling & Batch Worker Foundation | • `.gitignore` and `.github/workflows/ci.yml` established.<br>• Full `.ai` context and `GEMINI.MD` aligned with backend concepts & ADR-001.<br>• Protobuf v3 contract (`api/proto/v1/eval_worker.proto`) defined and compiled.<br>• Packaging and dependency environment configured (`pyproject.toml`, Dockerfile with `jemalloc`).<br>• FastAPI probe server (`/healthz`, `/ready`, `/docs`, `/redoc`, `/api/docs`, `/metrics`) and async runner daemon scaffold.<br>• Comprehensive unit test suite (`test/unit/`) validating settings, telemetry, and probes. | 🟢 Completed |
+| **Phase 2** | Weeks 3–4 | Lean Eval Runner & Direct ClickHouse Sink | • Native prompt-based judge adapter targeting Triton/vLLM endpoints (with fallback to `rag-prompt-registry-service`).<br>• Implementation of core RAG triad metrics with structured JSON schemas (Faithfulness, Context Precision, Answer Relevance).<br>• Direct micro-batched ClickHouse writer with buffer tables (`evaluation_runs`, `eval_metric_points` with `ReplacingMergeTree`). | 🟡 Active |
 | **Phase 3** | Weeks 5–6 | Temporal Task Queues, Rate Limiting & DLQ | • Temporal activity runner (`eval-task-queue`) with per-sample 10s heartbeating and DLQ fault isolation.<br>• Token-bucket rate limiter enforcing outbound judge concurrency caps (max 20) with exponential backoff and circuit breaker.<br>• CI/CD webhook trigger integrating golden-set regression gates ($\tau \ge 0.82$). | ⚪ Queued |
 | **Phase 4** | Weeks 7–8 | Chaos Hardening & Benchmarking | • Evaluation throughput benchmarks: 100-sample golden set $P95 \le 180$s on `c6i.2xlarge`.<br>• Simulated judge 429 flood testing verifying circuit breaker trip, non-blocking queue pause, and jittered resumption.<br>• 12-hour soak testing under `jemalloc` validating RSS stability below 2.0 GiB. | ⚪ Queued |
 
@@ -33,6 +33,23 @@
     - Integrated core 5-layer concepts from `Production Grade Backend Concepts.pdf` into architecture and code standards.
   - **Master Agent Directive** (`GEMINI.MD`):
     - Created comprehensive system prompt referencing `.ai/agents.md` and all `.ai/` context files, enforcing non-negotiable invariants, secured logging, continuous Doc API / OpenAPI updates, and Git commit standards.
+  - **Protobuf v3 Contract & Generation Tooling** (`api/proto/v1/eval_worker.proto`, `scripts/compile_proto.py`):
+    - Defined `EvaluationWorkerService` gRPC interface with `EvaluateBatch` and `GetRunStatus`.
+    - Generated Python stubs and typings (`eval_worker_pb2.py`, `eval_worker_pb2_grpc.py`, `eval_worker_pb2.pyi`).
+  - **Modern Project Packaging** (`pyproject.toml`):
+    - Configured PEP 518/621 packaging with explicit runtime, dev, and test dependencies and configurations for Ruff, mypy strict typing, and pytest.
+  - **Hardened Container Blueprint** (`deployments/docker/Dockerfile`):
+    - Docker blueprint with `python:3.12-slim-bookworm`, `jemalloc` memory allocator preloading (`LD_PRELOAD`), non-root `appuser` (UID 1000), healthcheck probes, and ports 8080/50051.
+  - **12-Factor Settings Management** (`internal/config/settings.py`):
+    - Pydantic Settings implementation for service, Temporal, judge inference, prompt registry, ClickHouse, and quality gates with `@lru_cache` singleton accessor.
+  - **Prometheus Telemetry & Decoupled Readiness** (`internal/telemetry/metrics.py`, `internal/telemetry/readiness.py`):
+    - Prometheus metrics collectors (`eval_batch_duration_seconds`, `eval_sample_execution_latency_seconds`, `eval_judge_active_concurrency`, `eval_judge_rate_limit_errors_total`, `eval_metric_score_value`).
+    - Decoupled `ReadinessManager` supporting simulated dependency states for deterministic testing.
+  - **Async Worker Daemon Entrypoint & Probe Server** (`cmd/worker/main.py`):
+    - FastAPI ASGI application exposing `/healthz`, `/ready` (200/503), `/docs`, `/redoc`, `/api/docs`, and `/metrics`.
+    - Asynchronous `TaskGroup` daemon runner for probe server, gRPC server, and Temporal activities.
+  - **Automated Unit Test Suite** (`test/unit/`):
+    - Comprehensive unit tests verifying settings, Prometheus metrics, and all HTTP probe endpoints.
 
 ---
 
