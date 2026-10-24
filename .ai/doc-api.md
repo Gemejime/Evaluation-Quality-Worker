@@ -191,6 +191,35 @@ class EvaluateGoldenSetResult(BaseModel):
     evaluated_samples_count: int
     failed_samples_count: int
     duration_seconds: float
+
+
+class BatchEvaluationInput(BaseModel):
+    """Input payload orchestrating batch golden-set evaluation."""
+
+    tenant_id: str
+    run_id: str
+    dataset_id: str = "golden-set"
+    samples: list[GoldenSampleItem]
+    eval_metrics: list[str] = ["context_precision", "faithfulness", "answer_relevance"]
+    concurrency_limit: int = 20
+    pipeline_version: str = "v1.0.0"
+
+
+class BatchEvaluationOutput(BaseModel):
+    """Aggregate result payload returned upon batch evaluation completion."""
+
+    tenant_id: str
+    run_id: str
+    dataset_id: str
+    total_samples: int
+    evaluated_samples: int
+    failed_samples_count: int
+    avg_faithfulness: float
+    avg_context_precision: float
+    avg_answer_relevance: float
+    passed_quality_gates: bool
+    duration_seconds: float
+    dlq_samples: list[dict[str, Any]] = []
 ```
 
 ---
