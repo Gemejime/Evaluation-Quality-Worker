@@ -61,18 +61,18 @@ Aligned with the authoritative specifications in [RAG Evaluation and Governance 
 
 ```mermaid
 flowchart TD
-    subgraph IngressTier["1. Ingress & Trigger Tier"]
+    subgraph IngressTier["1. Ingress and Trigger Tier"]
         CI["CI/CD Regression Trigger"]
         CRON["Scheduled Governance Sweep"]
-        GRPC_CLI["gRPC Client (EvaluateBatch)"]
-        TQ[("Temporal: eval-task-queue")]
+        GRPC_CLI["gRPC Client EvaluateBatch"]
+        TQ[("Temporal eval-task-queue")]
         CI -->|Dispatch Job| TQ
         CRON -->|Dispatch Job| TQ
     end
 
-    subgraph WorkerPod["2. rag-eval-governance-worker Pod (c6i.2xlarge)"]
+    subgraph WorkerPod["2. rag-eval-governance-worker Pod"]
         MAIN["cmd/worker/main.py"]
-        FASTAPI["FastAPI ASGI Server :8080"]
+        FASTAPI["FastAPI ASGI Server Port 8080"]
         TEMPORAL_MGR["TemporalWorkerManager"]
         ACT["Temporal evaluate_batch_activity"]
         RUNNER["BatchEvaluationRunner"]
@@ -81,9 +81,9 @@ flowchart TD
         FA["FaithfulnessMetric"]
         AR["AnswerRelevanceMetric"]
         
-        GOV["Outbound Judge Governor (RateLimiter & Semaphore)"]
+        GOV["Outbound Judge Governor"]
         TRITON_CLIENT["TritonJudgeClient"]
-        SINK["ClickHouseSink (Micro-Batch Buffer)"]
+        SINK["ClickHouseSink Buffer"]
 
         MAIN --> FASTAPI
         MAIN --> TEMPORAL_MGR
@@ -102,11 +102,11 @@ flowchart TD
         RUNNER -->|Buffered Records| SINK
     end
 
-    subgraph Probes["3. Operational Probes (:8080)"]
-        HZ["GET /healthz (Liveness)"]
-        RD["GET /ready (Readiness)"]
-        MT["GET /metrics (Prometheus)"]
-        DOC["GET /docs (OpenAPI 3.1)"]
+    subgraph Probes["3. Operational Probes Port 8080"]
+        HZ["GET /healthz Liveness"]
+        RD["GET /ready Readiness"]
+        MT["GET /metrics Prometheus"]
+        DOC["GET /docs OpenAPI 3.1"]
         FASTAPI --> HZ
         FASTAPI --> RD
         FASTAPI --> MT
@@ -114,17 +114,17 @@ flowchart TD
     end
 
     subgraph DownstreamTier["4. Downstream Dependencies"]
-        TRITON["rag-inference-serving (Triton / vLLM)"]
+        TRITON["rag-inference-serving Triton or vLLM"]
         REGISTRY["rag-prompt-registry-service"]
-        CH_CLUSTER[("ClickHouse Cluster (rag_governance)")]
+        CH_CLUSTER[("ClickHouse Cluster rag_governance")]
     end
 
     TQ -->|Poll Batch Tasks| ACT
-    ACT -->|Heartbeat Progress (10s)| TQ
-    GRPC_CLI -->|RPC :50051| MAIN
-    TRITON_CLIENT -->|HTTP / gRPC Requests| TRITON
-    TRITON_CLIENT -.->|Fetch Prompts (Fallback)| REGISTRY
-    SINK -->|Direct Flush :9000| CH_CLUSTER
+    ACT -->|Heartbeat Progress every 10s| TQ
+    GRPC_CLI -->|RPC Port 50051| MAIN
+    TRITON_CLIENT -->|HTTP or gRPC Requests| TRITON
+    TRITON_CLIENT -.->|Fetch Prompts Fallback| REGISTRY
+    SINK -->|Direct Flush Port 9000| CH_CLUSTER
 ```
 
 ### B. Sample-Level Evaluation & Heartbeat Resumption Sequence
@@ -132,38 +132,39 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     autonumber
-    participant T as Temporal Engine (eval-task-queue)
+    participant T as Temporal Engine
     participant W as Worker Activity Daemon
     participant R as BatchEvaluationRunner
     participant G as Outbound Governor
     participant J as Triton / vLLM Judge
     participant S as ClickHouseSink
+    participant C as ClickHouse Storage
 
-    T->>W: Execute BatchActivity (Job: 100 samples)
+    T->>W: Execute BatchActivity for 100 samples
     W->>W: Inspect activity.get_heartbeat_details()
-    Note over W: Heartbeat details = {sample_idx: 47}<br/>Resume starting from index 48
+    Note over W: Heartbeat details = sample_idx 47<br/>Resume starting from index 48
     
     loop For each sample from index 48 to 100
         W->>R: evaluate_sample(sample_48)
-        R->>G: acquire_slot() [Semaphore + Token Bucket]
-        G->>J: POST /v1/chat/completions (Context Precision prompt)
+        R->>G: acquire_slot()
+        G->>J: POST /v1/chat/completions (Context Precision)
         J-->>G: 200 OK (Verdicts JSON)
-        G->>J: POST /v1/chat/completions (Faithfulness prompt)
+        G->>J: POST /v1/chat/completions (Faithfulness)
         J-->>G: 200 OK (Extracted claims JSON)
-        G->>J: POST /v1/chat/completions (Answer Relevance prompt)
+        G->>J: POST /v1/chat/completions (Answer Relevance)
         J-->>G: 200 OK (Relevance score JSON)
         G-->>R: Evaluated SampleResult
         R->>S: buffer_record(eval_metric_points)
         
-        opt Every 10.0 seconds
-            W->>T: activity.heartbeat({"sample_idx": 48})
+        opt Every 10 seconds
+            W->>T: activity.heartbeat(sample_idx=48)
         end
     end
 
-    S->>S: Buffer reaches 1,000 or flush timer expires
-    S->>ClickHouse: INSERT INTO eval_metric_points VALUES (...)
+    S->>S: Buffer reaches 1000 items or flush timer expires
+    S->>C: INSERT INTO eval_metric_points VALUES ...
     W->>S: flush_all()
-    W->>ClickHouse: INSERT INTO evaluation_runs VALUES (...)
+    W->>C: INSERT INTO evaluation_runs VALUES ...
     W-->>T: Activity Complete (BatchEvaluationResult)
 ```
 

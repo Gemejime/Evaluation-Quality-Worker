@@ -120,9 +120,9 @@ flowchart TD
     end
 
     TQ -->|Poll Tasks| ACT
-    ACT -->|Heartbeat Checkpoint (10s)| TQ
+    ACT -->|Heartbeat Checkpoint every 10s| TQ
     TRITON_CLIENT -->|Inference Queries| TRITON
-    SINK -->|Timer / Buffer Full| CH
+    SINK -->|Timer or Buffer Full| CH
 ```
 
 ---
