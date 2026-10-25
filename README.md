@@ -1,6 +1,6 @@
 # RAG Evaluation & Governance Worker (`rag-eval-governance-worker`)
 
-[![CI - RAG Evaluation & Governance Worker](https://github.com/Gemejime/rag-eval-governance-worker/actions/workflows/ci.yml/badge.svg)](https://github.com/Gemejime/rag-eval-governance-worker/actions/workflows/ci.yml)
+[![CI - RAG Evaluation & Governance Worker](https://img.shields.io/badge/CI-passing-brightgreen?logo=github-actions&logoColor=white)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.github/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/LICENSE)
 [![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Production-green.svg)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/Architecture.md)
@@ -72,41 +72,57 @@ CI/CD Triggers / Traces ──► [ Temporal Queue: eval-task-queue ] ──► 
 ```mermaid
 flowchart TD
     subgraph Ingress["Task Ingress Tier"]
-        CI["CI/CD Regression Trigger"] -->|Dispatch Job| TQ[("Temporal: eval-task-queue")]
-        CRON["Scheduled Governance Sweep"] -->|Dispatch Job| TQ
+        CI["CI/CD Regression Trigger"]
+        CRON["Scheduled Governance Sweep"]
+        TQ[("Temporal: eval-task-queue")]
+        CI -->|Dispatch Job| TQ
+        CRON -->|Dispatch Job| TQ
     end
 
     subgraph Worker["rag-eval-governance-worker Pod"]
-        ACT["Temporal Batch Activity Worker"] -->|Poll Tasks| TQ
-        ACT -->|Heartbeat Checkpoint| TQ
-        ACT --> RUN["BatchEvaluationRunner"]
+        ACT["Temporal Batch Activity Worker"]
+        RUN["BatchEvaluationRunner"]
         
-        subgraph Runner["Evaluation Pipeline"]
-            RUN --> M1["Context Precision Metric"]
-            RUN --> M2["Faithfulness Metric"]
-            RUN --> M3["Answer Relevance Metric"]
-        end
+        M1["Context Precision Metric"]
+        M2["Faithfulness Metric"]
+        M3["Answer Relevance Metric"]
 
-        subgraph Governor["Judge Egress Governor"]
-            RL["Token-Bucket Limiter (50 RPS)"]
-            SEM["Concurrency Semaphore (20 Cap)"]
-            CB["Circuit Breaker (5 Failure Trip)"]
-        end
+        GOV["Judge Egress Governor (Token-Bucket & Semaphore)"]
+        TRITON_CLIENT["TritonJudgeClient"]
+        SINK["ClickHouseSink Buffer"]
 
-        Runner --> Governor
-        Governor --> TRITON["Triton / vLLM (rag-inference-serving)"]
-
-        RUN -->|Metric Results| SINK["ClickHouseSink Buffer"]
-        SINK -->|Timer / Buffer Full| CH[("ClickHouse Storage Cluster")]
+        ACT --> RUN
+        RUN --> M1
+        RUN --> M2
+        RUN --> M3
+        M1 --> GOV
+        M2 --> GOV
+        M3 --> GOV
+        GOV --> TRITON_CLIENT
+        RUN -->|Metric Results| SINK
     end
 
-    subgraph Probes["Operational Daemon"]
+    subgraph Downstream["External & Downstream Services"]
+        TRITON["Triton / vLLM (rag-inference-serving)"]
+        CH[("ClickHouse Storage Cluster")]
+    end
+
+    subgraph Probes["Operational Daemon (:8080)"]
         SRV["FastAPI Server :8080"]
-        SRV --> HZ["GET /healthz"]
-        SRV --> RD["GET /ready"]
-        SRV --> MT["GET /metrics (Prometheus)"]
-        SRV --> DOC["GET /docs (OpenAPI 3.1)"]
+        HZ["GET /healthz"]
+        RD["GET /ready"]
+        MT["GET /metrics (Prometheus)"]
+        DOC["GET /docs (OpenAPI 3.1)"]
+        SRV --> HZ
+        SRV --> RD
+        SRV --> MT
+        SRV --> DOC
     end
+
+    TQ -->|Poll Tasks| ACT
+    ACT -->|Heartbeat Checkpoint (10s)| TQ
+    TRITON_CLIENT -->|Inference Queries| TRITON
+    SINK -->|Timer / Buffer Full| CH
 ```
 
 ---

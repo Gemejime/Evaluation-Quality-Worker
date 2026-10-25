@@ -62,52 +62,69 @@ Aligned with the authoritative specifications in [RAG Evaluation and Governance 
 ```mermaid
 flowchart TD
     subgraph IngressTier["1. Ingress & Trigger Tier"]
-        CI["CI/CD Regression Trigger"] -->|Dispatch Job| TQ[("Temporal: eval-task-queue")]
-        CRON["Scheduled Governance Sweep"] -->|Dispatch Job| TQ
-        GRPC_CLI["gRPC Client (EvaluateBatch)"] -->|RPC :50051| WORKER_POD
+        CI["CI/CD Regression Trigger"]
+        CRON["Scheduled Governance Sweep"]
+        GRPC_CLI["gRPC Client (EvaluateBatch)"]
+        TQ[("Temporal: eval-task-queue")]
+        CI -->|Dispatch Job| TQ
+        CRON -->|Dispatch Job| TQ
     end
 
-    subgraph WORKER_POD["2. rag-eval-governance-worker Pod (c6i.2xlarge)"]
-        subgraph Daemons["Operational Daemons"]
-            MAIN["cmd/worker/main.py"] --> FASTAPI["FastAPI ASGI Server :8080"]
-            MAIN --> TEMPORAL_MGR["TemporalWorkerManager"]
-            FASTAPI --> PROBES["/healthz, /ready, /docs, /metrics"]
-        end
+    subgraph WorkerPod["2. rag-eval-governance-worker Pod (c6i.2xlarge)"]
+        MAIN["cmd/worker/main.py"]
+        FASTAPI["FastAPI ASGI Server :8080"]
+        TEMPORAL_MGR["TemporalWorkerManager"]
+        ACT["Temporal evaluate_batch_activity"]
+        RUNNER["BatchEvaluationRunner"]
+        
+        CP["ContextPrecisionMetric"]
+        FA["FaithfulnessMetric"]
+        AR["AnswerRelevanceMetric"]
+        
+        GOV["Outbound Judge Governor (RateLimiter & Semaphore)"]
+        TRITON_CLIENT["TritonJudgeClient"]
+        SINK["ClickHouseSink (Micro-Batch Buffer)"]
 
-        subgraph Activity["Temporal Activity Execution"]
-            TEMPORAL_MGR -->|Poll Tasks| TQ
-            TEMPORAL_MGR --> ACT["evaluate_batch_activity"]
-            ACT -->|Heartbeat (10s)| TQ
-            ACT --> RUNNER["BatchEvaluationRunner"]
-        end
+        MAIN --> FASTAPI
+        MAIN --> TEMPORAL_MGR
+        TEMPORAL_MGR --> ACT
+        ACT --> RUNNER
 
-        subgraph MetricsPipeline["Evaluation Metric Pipeline"]
-            RUNNER --> CP["ContextPrecisionMetric"]
-            RUNNER --> FA["FaithfulnessMetric"]
-            RUNNER --> AR["AnswerRelevanceMetric"]
-        end
+        RUNNER --> CP
+        RUNNER --> FA
+        RUNNER --> AR
 
-        subgraph OutboundGovernor["Outbound Judge Governor"]
-            TOKEN_BUCKET["Token-Bucket Rate Limiter (50 RPS)"]
-            CONCURRENCY_SEM["Concurrency Semaphore (Cap: 20)"]
-            CIRCUIT_BREAKER["Circuit Breaker (5 Failure Trip / 30s Reset)"]
-            BACKOFF["Exponential Backoff with Full Jitter (429 Retries)"]
-        end
+        CP --> GOV
+        FA --> GOV
+        AR --> GOV
+        GOV --> TRITON_CLIENT
 
-        MetricsPipeline --> OutboundGovernor
-        OutboundGovernor --> TRITON_CLIENT["TritonJudgeClient"]
-
-        subgraph PersistenceSink["Persistence Sink"]
-            RUNNER --> SINK["ClickHouseSink (Async Micro-Batch Buffer)"]
-            SINK -->|Buffer: 1000 items or 1.0s| CH_CLIENT["ClickHouse TCP Client"]
-        end
+        RUNNER -->|Buffered Records| SINK
     end
 
-    subgraph DownstreamTier["3. Downstream Services"]
-        TRITON_CLIENT -->|HTTP/gRPC| TRITON["rag-inference-serving (Triton / vLLM)"]
-        TRITON_CLIENT -.->|Fallback / Remote| REGISTRY["rag-prompt-registry-service"]
-        CH_CLIENT -->|Native TCP :9000| CH_CLUSTER[("ClickHouse Cluster (rag_governance)")]
+    subgraph Probes["3. Operational Probes (:8080)"]
+        HZ["GET /healthz (Liveness)"]
+        RD["GET /ready (Readiness)"]
+        MT["GET /metrics (Prometheus)"]
+        DOC["GET /docs (OpenAPI 3.1)"]
+        FASTAPI --> HZ
+        FASTAPI --> RD
+        FASTAPI --> MT
+        FASTAPI --> DOC
     end
+
+    subgraph DownstreamTier["4. Downstream Dependencies"]
+        TRITON["rag-inference-serving (Triton / vLLM)"]
+        REGISTRY["rag-prompt-registry-service"]
+        CH_CLUSTER[("ClickHouse Cluster (rag_governance)")]
+    end
+
+    TQ -->|Poll Batch Tasks| ACT
+    ACT -->|Heartbeat Progress (10s)| TQ
+    GRPC_CLI -->|RPC :50051| MAIN
+    TRITON_CLIENT -->|HTTP / gRPC Requests| TRITON
+    TRITON_CLIENT -.->|Fetch Prompts (Fallback)| REGISTRY
+    SINK -->|Direct Flush :9000| CH_CLUSTER
 ```
 
 ### B. Sample-Level Evaluation & Heartbeat Resumption Sequence
