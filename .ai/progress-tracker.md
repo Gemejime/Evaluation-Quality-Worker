@@ -41,8 +41,9 @@
     - Configured PEP 518/621 packaging with explicit runtime, dev, and test dependencies and configurations for Ruff, mypy strict typing, and pytest.
   - **Hardened Container Blueprint** (`deployments/docker/Dockerfile`):
     - Docker blueprint with `python:3.12-slim-bookworm`, `jemalloc` memory allocator preloading (`LD_PRELOAD`), non-root `appuser` (UID 1000), healthcheck probes, and ports 8080/50051.
-  - **12-Factor Settings Management** (`internal/config/settings.py`):
+  - **12-Factor Settings Management** (`internal/config/settings.py`, `.env.example`):
     - Pydantic Settings implementation for service, Temporal, judge inference, prompt registry, ClickHouse, and quality gates with `@lru_cache` singleton accessor.
+    - Production-grade `.env.example` documenting all configuration keys, types, defaults, and memory tuning (`LD_PRELOAD`), validated by automated completeness unit testing.
   - **Prometheus Telemetry & Decoupled Readiness** (`internal/telemetry/metrics.py`, `internal/telemetry/readiness.py`):
     - Prometheus metrics collectors (`eval_batch_duration_seconds`, `eval_sample_execution_latency_seconds`, `eval_judge_active_concurrency`, `eval_judge_rate_limit_errors_total`, `eval_metric_score_value`).
     - Decoupled `ReadinessManager` supporting simulated dependency states for deterministic testing.

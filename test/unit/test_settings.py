@@ -74,3 +74,30 @@ def test_get_settings_singleton_caching() -> None:
     s1 = get_settings()
     s2 = get_settings()
     assert s1 is s2
+
+
+def test_env_example_completeness() -> None:
+    """Verify that .env.example exists, covers all Settings fields, and parses cleanly."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    env_example = repo_root / ".env.example"
+    assert env_example.exists(), ".env.example file must exist at project root"
+
+    env_lines = env_example.read_text(encoding="utf-8").splitlines()
+    env_keys = set()
+    for line in env_lines:
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            env_keys.add(key)
+
+    # All fields defined on the Pydantic Settings model must exist in .env.example
+    settings_fields = set(Settings.model_fields.keys())
+    missing_fields = settings_fields - env_keys
+    assert not missing_fields, f"Fields missing from .env.example: {missing_fields}"
+
+    # Verify that Settings initializes cleanly when populated from .env.example
+    example_settings = Settings(_env_file=str(env_example), _env_file_encoding="utf-8")
+    assert example_settings.SERVICE_NAME == "rag-eval-governance-worker"
+
