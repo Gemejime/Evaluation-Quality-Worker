@@ -98,6 +98,9 @@ def test_env_example_completeness() -> None:
     assert not missing_fields, f"Fields missing from .env.example: {missing_fields}"
 
     # Verify that Settings initializes cleanly when populated from .env.example
-    example_settings = Settings(_env_file=str(env_example), _env_file_encoding="utf-8")
+    example_settings = Settings(
+        _env_file=str(env_example),  # type: ignore[call-arg]
+        _env_file_encoding="utf-8",
+    )
     assert example_settings.SERVICE_NAME == "rag-eval-governance-worker"
 
