@@ -70,3 +70,8 @@ keda:
   prometheusServerAddress: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   threshold: "5"
   query: 'sum(temporal_activity_schedule_to_start_latency_seconds_count{task_queue="eval-task-queue"})'
+
+# Argo Rollouts progressive canary delivery configuration
+rollout:
+  enabled: false
+

@@ -9,8 +9,8 @@ metadata:
     app.kubernetes.io/component: evaluation-worker
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
+    apiVersion: {{ if and .Values.rollout .Values.rollout.enabled }}"argoproj.io/v1alpha1"{{ else }}"apps/v1"{{ end }}
+    kind: {{ if and .Values.rollout .Values.rollout.enabled }}"Rollout"{{ else }}"Deployment"{{ end }}
     name: {{ include "rag-eval-governance-worker.fullname" . }}
   pollingInterval: {{ .Values.keda.pollingInterval | default 15 }}
   cooldownPeriod: {{ .Values.keda.cooldownPeriod | default 300 }}

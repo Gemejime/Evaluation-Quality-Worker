@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-eval-governance-worker
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: rag-eval-governance-worker
+    app.kubernetes.io/part-of: rag-platform
+    environment: production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/gemejime/rag-eval-governance-worker.git
+    targetRevision: HEAD
+    path: deployments/helm
+    helm:
+      valueFiles:
+        - values.yaml
+      values: |
+        rollout:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rag-evaluation
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

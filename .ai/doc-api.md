@@ -446,3 +446,67 @@ class Settings(BaseSettings):
     QUALITY_GATE_MIN_CONTEXT_PRECISION: float = 0.82
     QUALITY_GATE_MIN_ANSWER_RELEVANCE: float = 0.82
 ```
+
+---
+
+## 7. Operational Benchmark, Chaos & Soak CLI Tooling
+
+### A. Batch Throughput Benchmark (`scripts/benchmark_throughput.py`)
+- **CLI Options**:
+  - `--samples <int>`: Target sample count (default: 100).
+  - `--replicate-to <int>`: Dynamic scaling of base fixture to target count.
+  - `--concurrency <int>`: Concurrency semaphore limit (default: 20).
+  - `--golden-set <path>`: Source golden set fixture JSON path.
+  - `--mock-judge`: Enables deterministic offline judge simulation.
+  - `--mock-latency-mean <float>`: Mean mock network latency (default: 0.2s).
+  - `--output-json <path>`: Output machine-readable JSON metrics artifact.
+- **SLO Enforcement**: Total turnaround time $P95 \le 180$s for 100 samples under 20 concurrent connections. Exits with code 1 on SLO breach.
+
+### B. Outbound 429 Storm & Backpressure Chaos (`scripts/simulate_429_chaos.py`)
+- **CLI Options**:
+  - `--requests <int>`: Number of evaluation requests to dispatch (default: 50).
+  - `--ratio <float>`: Simulated 429 response ratio `[0.0 - 1.0]` (default: 0.4).
+  - `--concurrency <int>`: Concurrency semaphore limit (default: 20).
+  - `--rps <float>`: Token bucket capacity (default: 50.0).
+  - `--output-json <path>`: Output structured JSON chaos report.
+- **Circuit Breaker Invariant**: Handled 429 retries DO NOT increment circuit breaker failure counters; the circuit breaker remains CLOSED and only trips upon exhausted retries (5) or downstream 5xx collapses.
+
+### C. Continuous Soak & RSS Memory Harness (`scripts/soak_test_memory.py`)
+- **CLI Options**:
+  - `--iterations <int>`: Batch evaluation iterations (default: 100).
+  - `--duration-hours <float>`: Continuous soak duration (e.g. 12.0 hours).
+  - `--samples-per-batch <int>`: Samples evaluated per iteration (default: 10).
+  - `--warmup-iterations <int>`: Warmup passes before setting baseline RSS (default: 5).
+  - `--output-json <path>`: Output structured JSON soak profile.
+- **Memory Invariant**: Cross-platform memory sampling (`ctypes.windll.psapi.GetProcessMemoryInfo` on Windows, `/proc/self/statm` on Linux). Asserts $\Delta \text{RSS} \le 100$ MB after warmup and total $\text{RSS} \le 2.0$ GiB.
+
+### D. Decoupled Masking / Entropy Profiler (`scripts/profile_masking_latency.py`)
+- **CLI Options**:
+  - `--tokens <int>`: Target tokens per synthetic text chunk (default: 1000).
+  - `--chunks <int>`: Synthetic chunks profiled (default: 50).
+  - `--output-json <path>`: Output structured JSON profiling report.
+- **Latency Budgets (ADR-001 / ADR-004)**:
+  - Tier 1 Compiled Regex Scanning: $P99 \le 5.0$ ms across 1,000-token chunks.
+  - Shannon Entropy Sliding Window: $P99 \le 120.0$ ms across 1,000-token chunks.
+
+---
+
+## 8. Declarative GitOps & ArgoCD Progressive Delivery Blueprint
+
+### A. ArgoCD Application Manifest (`deployments/argocd/application.yaml`)
+- **Target Namespace**: `rag-evaluation`
+- **Source Chart**: `deployments/helm`
+- **Automated Sync Policy**: `prune: true`, `selfHeal: true`, `CreateNamespace=true`.
+
+### B. Argo Rollouts AnalysisTemplate (`deployments/argocd/analysis-template.yaml`)
+- **Quality Release Gate**: Asserts $\min(\text{eval\_metric\_score\_value}) \ge 0.82$ across Context Precision, Faithfulness, and Answer Relevance.
+- **Downstream 429 Rate Budget**: Asserts $\text{rate}(\text{eval\_judge\_rate\_limit\_errors\_total}[5\text{m}]) == 0$.
+- **Automated Rollback**: Halts canary step promotions and rolls back active workloads if quality thresholds drop below 0.82 or downstream rate-limit errors occur.
+
+### C. Canary Rollout Strategy (`deployments/argocd/rollout.yaml`)
+- **Canary Steps**:
+  1. `setWeight: 20` (20% traffic allocation) -> `pause: 5m` -> `analysis` (Quality Gate).
+  2. `setWeight: 50` (50% traffic allocation) -> `pause: 10m` -> `analysis` (Quality Gate).
+  3. `setWeight: 100` (Full 100% promotion) -> `pause: 5m`.
+- **KEDA ScaledObject Coordination**: ScaledObject dynamically references the `Rollout` resource (`scaleTargetRef.kind: Rollout`), autoscaling canary worker replicas on Temporal queue backlog.
+
