@@ -35,7 +35,7 @@ jobs:
       - name: Install Linting & Typecheck Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy pydantic types-protobuf
+          pip install -e ".[dev,test]"
 
       - name: Run Ruff Lint Check
         run: |

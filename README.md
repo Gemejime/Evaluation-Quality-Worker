@@ -237,7 +237,7 @@ cp .env.example .env
 | `JUDGE_CB_RESET_TIMEOUT_SECONDS` | `30.0` | Circuit breaker recovery cooldown period |
 | `PROMPT_REGISTRY_URL` | `http://localhost:8080` | Dynamic prompt template registry service endpoint |
 | `CLICKHOUSE_HOST` | `localhost` | ClickHouse cluster hostname |
-| `CLICKHOUSE_PORT` | `9000` | ClickHouse native TCP port |
+| `CLICKHOUSE_PORT` | `8123` | ClickHouse HTTP port |
 | `CLICKHOUSE_USER` | `eval_worker` | ClickHouse database username |
 | `CLICKHOUSE_PASSWORD` | `""` | ClickHouse database password |
 | `CLICKHOUSE_DATABASE` | `rag_governance` | Target database for evaluation tables |
@@ -255,7 +255,7 @@ cp .env.example .env
 
 - **Python**: Version 3.12 or higher (64-bit).
 - **C/C++ Allocator**: `libjemalloc2` installed on Linux systems (`apt-get install libjemalloc2`).
-- **Storage & Queues**: ClickHouse instance (native port 9000) and Temporal Server (port 7233).
+- **Storage & Queues**: ClickHouse instance (HTTP port 8123) and Temporal Server (port 7233).
 
 ### Installation & Setup
 

@@ -15,13 +15,15 @@ def compile_proto() -> int:
         print(f"Error: {proto_file} does not exist", file=sys.stderr)
         return 1
 
+    proto_rel = proto_file.relative_to(root).as_posix()
+
     args = [
         "protoc",
-        f"-I{proto_dir}",
-        f"--python_out={proto_dir}",
-        f"--grpc_python_out={proto_dir}",
-        f"--pyi_out={proto_dir}",
-        str(proto_file),
+        f"-I{root}",
+        f"--python_out={root}",
+        f"--grpc_python_out={root}",
+        f"--pyi_out={root}",
+        proto_rel,
     ]
 
     print(f"Compiling {proto_file}...")

@@ -211,12 +211,31 @@ class BatchEvaluationRunner:
             else 0.0
         )
 
-        passed_quality_gates = (
-            avg_faithfulness >= self.settings.QUALITY_GATE_MIN_FAITHFULNESS
-            and avg_context_precision >= self.settings.QUALITY_GATE_MIN_CONTEXT_PRECISION
-            and avg_answer_relevance >= self.settings.QUALITY_GATE_MIN_ANSWER_RELEVANCE
-            and failed_samples_count == 0
-        )
+        metric_averages = {
+            "faithfulness": (avg_faithfulness, self.settings.QUALITY_GATE_MIN_FAITHFULNESS),
+            "context_precision": (
+                avg_context_precision,
+                self.settings.QUALITY_GATE_MIN_CONTEXT_PRECISION,
+            ),
+            "answer_relevance": (
+                avg_answer_relevance,
+                self.settings.QUALITY_GATE_MIN_ANSWER_RELEVANCE,
+            ),
+        }
+
+        active_metrics = [
+            m for m in batch_input.eval_metrics
+            if m in scores and len(scores[m]) > 0
+        ]
+
+        if not active_metrics or failed_samples_count > 0:
+            passed_quality_gates = False
+        else:
+            passed_quality_gates = all(
+                metric_averages[m][0] >= metric_averages[m][1]
+                for m in active_metrics
+                if m in metric_averages
+            )
 
         # Update Prometheus metrics
         if "faithfulness" in scores:

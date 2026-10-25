@@ -39,7 +39,7 @@ class BatchEvaluationInput(BaseModel):
     eval_metrics: list[str] = Field(
         default_factory=lambda: ["context_precision", "faithfulness", "answer_relevance"]
     )
-    concurrency_limit: int = 20
+    concurrency_limit: int = Field(default=20, gt=0)
     pipeline_version: str = "v1.0.0"
 
 

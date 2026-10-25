@@ -150,7 +150,7 @@
 ### Runbook 2: Quality Gate CI/CD Rejection Troubleshooting
 1. Inspect failed pipeline execution via ClickHouse (using `FINAL` for deduplicated reads):
    ```sql
-   SELECT * FROM eval_metric_points FINAL WHERE run_id = '{run_id}' AND score < 0.82;
+   SELECT * FROM eval_metric_points FINAL WHERE tenant_id = '{tenant_id}' AND run_id = '{run_id}' AND score < 0.82;
    ```
 2. If faithfulness degraded: check for regressions in prompt template system instructions in `rag-prompt-registry-service`.
 3. If context_precision degraded: check candidate retrieval and reranking parameters in `rag-search-orchestrator`.

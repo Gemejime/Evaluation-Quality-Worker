@@ -13,10 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjemalloc2 \
     curl \
     ca-certificates \
-    && ln -sf /usr/lib/x86_64-linux-gnu/libjemalloc.so.2 /usr/lib/x86_64-linux-gnu/libjemalloc.so \
     && rm -rf /var/lib/apt/lists/*
 
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+ENV LD_PRELOAD=libjemalloc.so.2
 
 WORKDIR /app
 
@@ -24,14 +23,11 @@ WORKDIR /app
 RUN groupadd -g 1000 appgroup && \
     useradd -u 1000 -g appgroup -s /bin/bash -m appuser
 
-# Copy pyproject.toml first to cache dependency installation
-COPY pyproject.toml /app/
+# Copy application source code and project metadata
+COPY --chown=appuser:appgroup . /app
 
 # Install dependencies using pip
 RUN pip install --no-cache-dir .
-
-# Copy application source code
-COPY --chown=appuser:appgroup . /app
 
 # Ensure proper permissions
 RUN chown -R appuser:appgroup /app

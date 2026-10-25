@@ -186,3 +186,63 @@ async def test_answer_relevance_parsing_and_clamping() -> None:
     evaluator_over = AnswerRelevanceEvaluator(DummyJudge(parsed_json={"score": 1.5}))
     res_over = await evaluator_over.evaluate(sample)
     assert res_over.score == 1.0
+
+
+@pytest.mark.asyncio
+async def test_answer_relevance_validation_errors() -> None:
+    sample = GoldenSampleItem(
+        sample_id="a_err",
+        sample_idx=0,
+        query="Query",
+        retrieved_contexts=["ctx"],
+        generated_answer="Answer",
+    )
+
+    # Missing parsed_json
+    evaluator_none = AnswerRelevanceEvaluator(DummyJudge(parsed_json=None))
+    with pytest.raises(ValueError, match="Missing parsed JSON"):
+        await evaluator_none.evaluate(sample)
+
+    # Absent score / rating / verdict
+    evaluator_empty = AnswerRelevanceEvaluator(DummyJudge(parsed_json={}))
+    with pytest.raises(ValueError, match="No numeric score, verdict, or rating present"):
+        await evaluator_empty.evaluate(sample)
+
+    # Non-numeric score
+    evaluator_str = AnswerRelevanceEvaluator(DummyJudge(parsed_json={"score": "not-a-number"}))
+    with pytest.raises(ValueError, match="Invalid non-numeric relevance score"):
+        await evaluator_str.evaluate(sample)
+
+    # Non-finite score (NaN / Inf)
+    evaluator_nan = AnswerRelevanceEvaluator(DummyJudge(parsed_json={"score": float("nan")}))
+    with pytest.raises(ValueError, match="Non-finite relevance score"):
+        await evaluator_nan.evaluate(sample)
+
+
+@pytest.mark.asyncio
+async def test_faithfulness_validation_errors() -> None:
+    sample = GoldenSampleItem(
+        sample_id="f_err",
+        sample_idx=0,
+        query="Query",
+        retrieved_contexts=["ctx"],
+        generated_answer="Answer",
+    )
+
+    # Missing parsed_json
+    evaluator_none = FaithfulnessEvaluator(DummyJudge(parsed_json=None))
+    with pytest.raises(ValueError, match="Missing parsed JSON"):
+        await evaluator_none.evaluate(sample)
+
+    # Missing extracted_claims key
+    evaluator_no_key = FaithfulnessEvaluator(DummyJudge(parsed_json={"reasoning": "bad"}))
+    with pytest.raises(ValueError, match="missing valid 'extracted_claims' list"):
+        await evaluator_no_key.evaluate(sample)
+
+    # extracted_claims not a list
+    evaluator_bad_type = FaithfulnessEvaluator(
+        DummyJudge(parsed_json={"extracted_claims": "invalid"})
+    )
+    with pytest.raises(ValueError, match="missing valid 'extracted_claims' list"):
+        await evaluator_bad_type.evaluate(sample)
+

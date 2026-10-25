@@ -6,9 +6,12 @@ tools like pdb to function transparently alongside the cmd/ project structure.
 
 import importlib.util
 import sys
+import sysconfig
 from pathlib import Path
 
-_stdlib_cmd_file = Path(sys.base_prefix) / "Lib" / "cmd.py"
+_stdlib_cmd_file = Path(sysconfig.get_path("stdlib")) / "cmd.py"
+if not _stdlib_cmd_file.exists():
+    _stdlib_cmd_file = Path(sys.base_prefix) / "Lib" / "cmd.py"
 if not _stdlib_cmd_file.exists():
     _stdlib_cmd_file = Path(sys.prefix) / "Lib" / "cmd.py"
 

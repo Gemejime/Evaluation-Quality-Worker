@@ -78,16 +78,19 @@ class TritonJudgeClient(BaseJudgeClient):
         response.raise_for_status()
         resp_json = response.json()
 
-        choices = resp_json.get("choices", [])
-        if not choices:
+        choices = resp_json.get("choices")
+        if not choices or not isinstance(choices, list) or not choices[0]:
             raw_content = ""
         else:
-            message = choices[0].get("message", {})
-            raw_content = message.get("content", "")
+            first_choice: dict[str, Any] = choices[0] if isinstance(choices[0], dict) else {}
+            msg_obj = first_choice.get("message")
+            message: dict[str, Any] = msg_obj if isinstance(msg_obj, dict) else {}
+            raw_content = str(message.get("content") or "")
 
-        usage = resp_json.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
+        usage_raw = resp_json.get("usage")
+        usage: dict[str, Any] = usage_raw if isinstance(usage_raw, dict) else {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
 
         parsed_json = self._parse_json_payload(raw_content)
 

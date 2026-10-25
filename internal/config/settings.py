@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # ClickHouse Persistence Settings
     CLICKHOUSE_HOST: str = "clickhouse.storage.svc.cluster.local"
-    CLICKHOUSE_PORT: int = 9000
+    CLICKHOUSE_PORT: int = 8123
     CLICKHOUSE_USER: str = "eval_worker"
     CLICKHOUSE_PASSWORD: str = ""
     CLICKHOUSE_DATABASE: str = "rag_governance"

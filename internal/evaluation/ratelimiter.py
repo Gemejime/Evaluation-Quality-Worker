@@ -154,8 +154,13 @@ class OutboundJudgeGovernor:
         """Check if exception represents an HTTP 429 or RESOURCE_EXHAUSTED backpressure response."""
         if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
             return True
+        response = getattr(exc, "response", None)
+        if response is not None and getattr(response, "status_code", None) == 429:
+            return True
+        if getattr(exc, "status_code", None) == 429:
+            return True
         msg = str(exc).upper()
-        return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+        return "RESOURCE_EXHAUSTED" in msg
 
     async def execute(
         self,

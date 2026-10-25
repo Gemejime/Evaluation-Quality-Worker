@@ -188,7 +188,7 @@ async def test_runner_sample_dlq_fault_isolation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_secured_logging_audit(caplog: pytest.LogCaptureFixture) -> None:
+async def test_runner_secured_logging_audit(capsys: pytest.CaptureFixture[str]) -> None:
     settings = Settings(
         JUDGE_RATE_LIMIT_RPS=100.0,
         JUDGE_MAX_CONCURRENT_REQUESTS=5,
@@ -220,12 +220,65 @@ async def test_runner_secured_logging_audit(caplog: pytest.LogCaptureFixture) ->
         samples=[sample],
     )
 
-    with caplog.at_level("INFO"):
-        await runner.run_batch(batch_input)
+    await runner.run_batch(batch_input)
 
-    captured_text = caplog.text
+    captured_text = capsys.readouterr().out
+
+    # Positive assertion verifying that evaluation logs were generated
+    assert "sample_metric_evaluated" in captured_text
 
     # Verify that raw secret queries, contexts, and answers NEVER leaked to logs
     assert secret_query not in captured_text
     assert secret_context not in captured_text
     assert secret_answer not in captured_text
+
+
+def test_batch_evaluation_input_concurrency_validation() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        BatchEvaluationInput.model_validate(
+            {"tenant_id": "t1", "run_id": "r1", "samples": [], "concurrency_limit": 0}
+        )
+
+    with pytest.raises(ValidationError):
+        BatchEvaluationInput.model_validate(
+            {"tenant_id": "t1", "run_id": "r1", "samples": [], "concurrency_limit": -5}
+        )
+
+
+@pytest.mark.asyncio
+async def test_runner_subset_metrics_quality_gates() -> None:
+    settings = Settings(
+        QUALITY_GATE_MIN_FAITHFULNESS=0.82,
+        QUALITY_GATE_MIN_CONTEXT_PRECISION=0.82,
+        QUALITY_GATE_MIN_ANSWER_RELEVANCE=0.82,
+    )
+    judge = MockJudgeForRunner()
+    governor = OutboundJudgeGovernor(settings=settings)
+    runner = BatchEvaluationRunner(
+        judge_client=judge,
+        governor=governor,
+        sink=None,
+        settings=settings,
+    )
+
+    sample = GoldenSampleItem(
+        sample_id="sub-1",
+        sample_idx=0,
+        query="Query",
+        retrieved_contexts=["Context 1"],
+        generated_answer="Answer",
+    )
+
+    # Request only faithfulness; unrequested metrics should not fail the quality gate
+    batch_input = BatchEvaluationInput(
+        tenant_id="tenant-sub",
+        run_id="run-sub",
+        samples=[sample],
+        eval_metrics=["faithfulness"],
+    )
+
+    output = await runner.run_batch(batch_input)
+    assert output.evaluated_samples == 1
+    assert output.passed_quality_gates is True

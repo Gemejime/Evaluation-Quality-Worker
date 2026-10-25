@@ -31,7 +31,7 @@ CI/CD Triggers / Traces ──► [ Temporal Queue: eval-task-queue ] ──► 
 ## Strategic Objectives
 
 1. **Strict Decoupling of Ingestion from Offline Evaluation**: Isolate real-time chunk tokenization from batch LLM-as-a-judge evaluation pipelines to prevent queue cross-talk, memory contention, and scaling interference.
-2. **Deterministic Token Sanitization**: Provide tenant-salted HMAC masking for identified sensitive entities prior to vectorization; HMAC masking is cryptographically one-way and irreversible (with entity recovery supported only via a separate, securely encrypted token vault mapping), preserving deterministic matching and embedding semantic integrity with zero salt leaks.
+2. **Deterministic Token Sanitization**: Provide tenant-salted HMAC masking for identified sensitive entities prior to vectorization; HMAC masking is cryptographically one-way and irreversible (with entity recovery supported only via a separate, securely encrypted token vault mapping), preserving deterministic equality matching with zero salt leaks while semantic-preserving representations (such as typed placeholders) are defined prior to vectorization.
 3. **Standardized, Lean Evaluation Engine**: Replace bloated third-party evaluation dependencies (Ragas, TruLens) with a unified, lightweight LLM judge harness executing evaluated prompt templates (Faithfulness, Context Precision, Answer Relevance) directly against Triton/vLLM endpoints.
 4. **Zero-Allocation Egress & Direct Micro-Batching**: Persist evaluation run metadata and metric score distributions directly into ClickHouse without transactional dual-writes to relational databases.
 5. **Continuous Documentation & Contract Synchronization**: Ensure internal OpenAPI 3.1 specifications (`/docs`, `/redoc`, `/api/docs`, `/openapi.json`) and `.ai/doc-api.md` are continuously synchronized with every code change.
@@ -41,7 +41,7 @@ CI/CD Triggers / Traces ──► [ Temporal Queue: eval-task-queue ] ──► 
 ## Calibrated Quantitative SLOs & SLIs
 
 - **Batch Evaluation Turnaround (`rag-eval-worker`)**: $P95 \le 180$s for a 100-sample golden-set run with concurrent judge requests capped at 20 parallel requests to protect serving capacity.
-- **Temporal Heartbeat Reliability**: 100% of batch evaluation tasks heartbeat every 10 seconds per evaluated sample, enabling resumption from the last acknowledged checkpoint (judge execution is at-least-once, while ClickHouse deduplication guarantees zero duplicate persisted rows).
+- **Temporal Heartbeat Reliability**: 100% of batch evaluation tasks heartbeat every 10 seconds per evaluated sample, enabling resumption from the last acknowledged checkpoint (judge execution is at-least-once, while ClickHouse `ReplacingMergeTree` tables—keyed by `(tenant_id, run_id)` for runs and `(tenant_id, run_id, metric_name, sample_idx)` for metrics—provide read-time deduplication requiring consumers to use `FINAL` or version-aware reads to avoid duplicate results).
 - **Masking Ingestion Throughput (`rag-masking-sanitizer`)**:
   - Tier 1 (Regex / Aho-Corasick Fast-Path): $P99 \le 5$ms per 1,000-token chunk.
   - Tier 2 (Presidio / spaCy CPU Fallback): $P99 \le 120$ms per 1,000-token chunk on standard `c6i.2xlarge` instances.

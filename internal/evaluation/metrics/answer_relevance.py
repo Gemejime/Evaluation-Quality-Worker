@@ -1,5 +1,6 @@
 """Answer Relevance metric evaluator scoring query-to-answer semantic relevance."""
 
+import math
 import time
 
 import structlog
@@ -47,19 +48,27 @@ class AnswerRelevanceEvaluator(BaseMetricEvaluator):
             system_prompt=SYSTEM_PROMPT,
         )
 
-        parsed = judge_response.parsed_json or {}
+        if judge_response.parsed_json is None:
+            raise ValueError("Missing parsed JSON in judge response")
+
+        parsed = judge_response.parsed_json
         raw_score = parsed.get("score")
         reasoning = str(parsed.get("reasoning", "")).strip()
 
         if raw_score is None:
             # Fallback check for verdict or rating
-            raw_score = parsed.get("verdict", parsed.get("rating", 0.0))
+            raw_score = parsed.get("verdict", parsed.get("rating"))
+
+        if raw_score is None:
+            raise ValueError("No numeric score, verdict, or rating present in judge response")
 
         try:
             score = float(raw_score)
-        except (TypeError, ValueError):
-            score = 0.0
-            reasoning = reasoning or "Failed to parse numeric relevance score from judge output."
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid non-numeric relevance score: {raw_score}") from exc
+
+        if not math.isfinite(score):
+            raise ValueError(f"Non-finite relevance score returned by judge: {score}")
 
         score = max(0.0, min(1.0, score))
         if not reasoning:

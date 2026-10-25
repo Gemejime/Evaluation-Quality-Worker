@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import eval_worker_pb2 as eval__worker__pb2
+from api.proto.v1 import eval_worker_pb2 as api_dot_proto_dot_v1_dot_eval__worker__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in eval_worker_pb2_grpc.py depends on'
+        + ' but the generated code in api/proto/v1/eval_worker_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,13 +36,13 @@ class EvaluationWorkerServiceStub:
         """
         self.EvaluateBatch = channel.unary_unary(
                 '/rag.eval.v1.EvaluationWorkerService/EvaluateBatch',
-                request_serializer=eval__worker__pb2.EvaluateBatchRequest.SerializeToString,
-                response_deserializer=eval__worker__pb2.EvaluateBatchResponse.FromString,
+                request_serializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchRequest.SerializeToString,
+                response_deserializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchResponse.FromString,
                 _registered_method=True)
         self.GetRunStatus = channel.unary_unary(
                 '/rag.eval.v1.EvaluationWorkerService/GetRunStatus',
-                request_serializer=eval__worker__pb2.GetRunStatusRequest.SerializeToString,
-                response_deserializer=eval__worker__pb2.GetRunStatusResponse.FromString,
+                request_serializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusRequest.SerializeToString,
+                response_deserializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusResponse.FromString,
                 _registered_method=True)
 
 
@@ -66,13 +66,13 @@ def add_EvaluationWorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'EvaluateBatch': grpc.unary_unary_rpc_method_handler(
                     servicer.EvaluateBatch,
-                    request_deserializer=eval__worker__pb2.EvaluateBatchRequest.FromString,
-                    response_serializer=eval__worker__pb2.EvaluateBatchResponse.SerializeToString,
+                    request_deserializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchRequest.FromString,
+                    response_serializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchResponse.SerializeToString,
             ),
             'GetRunStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetRunStatus,
-                    request_deserializer=eval__worker__pb2.GetRunStatusRequest.FromString,
-                    response_serializer=eval__worker__pb2.GetRunStatusResponse.SerializeToString,
+                    request_deserializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusRequest.FromString,
+                    response_serializer=api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -100,8 +100,8 @@ class EvaluationWorkerService:
             request,
             target,
             '/rag.eval.v1.EvaluationWorkerService/EvaluateBatch',
-            eval__worker__pb2.EvaluateBatchRequest.SerializeToString,
-            eval__worker__pb2.EvaluateBatchResponse.FromString,
+            api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchRequest.SerializeToString,
+            api_dot_proto_dot_v1_dot_eval__worker__pb2.EvaluateBatchResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -127,8 +127,8 @@ class EvaluationWorkerService:
             request,
             target,
             '/rag.eval.v1.EvaluationWorkerService/GetRunStatus',
-            eval__worker__pb2.GetRunStatusRequest.SerializeToString,
-            eval__worker__pb2.GetRunStatusResponse.FromString,
+            api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusRequest.SerializeToString,
+            api_dot_proto_dot_v1_dot_eval__worker__pb2.GetRunStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

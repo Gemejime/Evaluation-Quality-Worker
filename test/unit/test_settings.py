@@ -38,7 +38,7 @@ def test_default_settings() -> None:
     assert settings.JUDGE_BACKOFF_MAX_SECONDS == 30.0
 
     # ClickHouse defaults
-    assert settings.CLICKHOUSE_PORT == 9000
+    assert settings.CLICKHOUSE_PORT == 8123
     assert settings.CLICKHOUSE_DATABASE == "rag_governance"
     assert settings.CLICKHOUSE_BATCH_SIZE == 1000
     assert settings.CLICKHOUSE_FLUSH_INTERVAL_SECONDS == 1.0

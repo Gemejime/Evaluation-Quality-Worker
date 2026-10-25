@@ -1,6 +1,7 @@
 """Direct micro-batched ClickHouse sink with ReplacingMergeTree persistence."""
 
 import asyncio
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -68,6 +69,7 @@ class ClickHouseSink:
 
         self._buffer: list[dict[str, Any]] = []
         self._buffer_lock = asyncio.Lock()
+        self._client_lock = threading.Lock()
         self._flusher_task: asyncio.Task[None] | None = None
         self._is_closed = False
 
@@ -75,20 +77,28 @@ class ClickHouseSink:
             self._flusher_task = asyncio.create_task(self._periodic_flusher())
 
     def _get_client(self) -> Client:
-        """Lazily initialize or return ClickHouse driver client."""
+        """Lazily initialize or return ClickHouse driver client with thread-safe locking."""
         if self._client is None:
-            self._client = clickhouse_connect.get_client(
-                host=self.settings.CLICKHOUSE_HOST,
-                port=self.settings.CLICKHOUSE_PORT,
-                username=self.settings.CLICKHOUSE_USER,
-                password=self.settings.CLICKHOUSE_PASSWORD,
-                database=self.settings.CLICKHOUSE_DATABASE,
-            )
+            with self._client_lock:
+                if self._client is None:
+                    self._client = clickhouse_connect.get_client(
+                        host=self.settings.CLICKHOUSE_HOST,
+                        port=self.settings.CLICKHOUSE_PORT,
+                        username=self.settings.CLICKHOUSE_USER,
+                        password=self.settings.CLICKHOUSE_PASSWORD,
+                        database=self.settings.CLICKHOUSE_DATABASE,
+                    )
         return self._client
+
+    async def _get_client_async(self) -> Client:
+        """Asynchronously acquire or initialize the ClickHouse client off the event loop."""
+        if self._client is not None:
+            return self._client
+        return await asyncio.to_thread(self._get_client)
 
     async def initialize_schema(self) -> None:
         """Initialize ClickHouse tables with ReplacingMergeTree engine if non-existent."""
-        client = self._get_client()
+        client = await self._get_client_async()
 
         def _init() -> None:
             client.command(CREATE_EVALUATION_RUNS_TABLE)
@@ -99,12 +109,14 @@ class ClickHouseSink:
 
     async def _periodic_flusher(self) -> None:
         """Background coroutine flushing micro-batch buffer at fixed intervals."""
-        try:
-            while not self._is_closed:
+        while not self._is_closed:
+            try:
                 await asyncio.sleep(self.flush_interval)
                 await self.flush()
-        except asyncio.CancelledError:
-            pass
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("periodic_flusher_iteration_failed", error=str(exc))
 
     async def buffer_metric_point(self, point: dict[str, Any]) -> None:
         """Buffer a sample-level metric row into the micro-batch queue."""
@@ -151,7 +163,7 @@ class ClickHouseSink:
 
     async def insert_run(self, run: dict[str, Any]) -> None:
         """Insert evaluation run summary metadata into evaluation_runs table."""
-        client = self._get_client()
+        client = await self._get_client_async()
 
         run_date_val = run.get("run_date")
         if not run_date_val:
@@ -219,7 +231,7 @@ class ClickHouseSink:
             to_flush = list(self._buffer)
             self._buffer.clear()
 
-        client = self._get_client()
+        client = await self._get_client_async()
         columns = [
             "tenant_id",
             "run_id",
@@ -275,7 +287,7 @@ class ClickHouseSink:
 
     async def get_run_metrics(self, tenant_id: str, run_id: str) -> list[dict[str, Any]]:
         """Read deduplicated metric points for a run enforcing FINAL semantics."""
-        client = self._get_client()
+        client = await self._get_client_async()
         query = (
             "SELECT tenant_id, run_id, run_date, sample_idx, sample_id, metric_name, "
             "score, reasoning_hash, execution_latency_ms, judge_model, created_at "

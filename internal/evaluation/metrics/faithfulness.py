@@ -63,8 +63,14 @@ class FaithfulnessEvaluator(BaseMetricEvaluator):
             system_prompt=SYSTEM_PROMPT,
         )
 
-        parsed = judge_response.parsed_json or {}
-        extracted_claims: list[dict[str, Any]] = parsed.get("extracted_claims", [])
+        if judge_response.parsed_json is None:
+            raise ValueError("Missing parsed JSON in judge response")
+
+        parsed = judge_response.parsed_json
+        if "extracted_claims" not in parsed or not isinstance(parsed["extracted_claims"], list):
+            raise ValueError("Judge response missing valid 'extracted_claims' list")
+
+        extracted_claims: list[dict[str, Any]] = parsed["extracted_claims"]
         judge_reasoning = str(parsed.get("reasoning", "")).strip()
 
         total_claims = len(extracted_claims)
