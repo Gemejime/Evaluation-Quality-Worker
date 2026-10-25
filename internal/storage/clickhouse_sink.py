@@ -257,11 +257,21 @@ class ClickHouseSink:
                 column_names=columns,
             )
 
-        await asyncio.to_thread(_insert_batch)
-        logger.info(
-            "clickhouse_buffer_flushed",
-            record_count=len(rows),
-        )
+        try:
+            await asyncio.to_thread(_insert_batch)
+            logger.info(
+                "clickhouse_buffer_flushed",
+                record_count=len(rows),
+            )
+        except Exception as exc:
+            async with self._buffer_lock:
+                self._buffer = to_flush + self._buffer
+            logger.error(
+                "clickhouse_flush_failed_requeued_buffer",
+                requeued_count=len(to_flush),
+                error=str(exc),
+            )
+            raise
 
     async def get_run_metrics(self, tenant_id: str, run_id: str) -> list[dict[str, Any]]:
         """Read deduplicated metric points for a run enforcing FINAL semantics."""
