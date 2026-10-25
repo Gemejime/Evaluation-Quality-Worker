@@ -30,7 +30,7 @@ def compile_proto() -> int:
         print("Protobuf compilation succeeded.")
     else:
         print(f"Protobuf compilation failed with exit code {result}.", file=sys.stderr)
-    return result
+    return int(result)
 
 
 if __name__ == "__main__":
