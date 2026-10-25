@@ -25,6 +25,7 @@ class EvaluationHeartbeatDetails(BaseModel):
     total_samples: int
     current_sample_id: str
     completed_samples: int
+    completed_sample_indices: list[int] = Field(default_factory=list)
     last_checkpoint_timestamp_utc: str
 
 
