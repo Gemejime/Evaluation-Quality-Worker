@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from internal.config.settings import Settings, get_settings
 from internal.telemetry.metrics import get_registry
 from internal.telemetry.readiness import get_readiness_manager
+from internal.temporal.worker import TemporalWorkerManager
 
 logger = structlog.get_logger(__name__)
 
@@ -124,10 +125,12 @@ async def serve() -> None:
         access_log=False,
     )
     server = uvicorn.Server(config)
+    temporal_manager = TemporalWorkerManager(settings=settings)
 
-    # Structured async concurrency to host probe server, gRPC server, and Temporal worker daemons
+    # Structured async concurrency to host probe server and Temporal worker daemons
     async with asyncio.TaskGroup() as tg:
         tg.create_task(serve_probes(settings, server))
+        tg.create_task(temporal_manager.run())
 
 
 def main() -> None:
