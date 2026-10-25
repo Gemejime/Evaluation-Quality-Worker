@@ -1,11 +1,11 @@
 # Architectural Specification — RAG Evaluation & Governance Worker (`rag-eval-governance-worker`)
 
 > **Authoritative References**:
-> - [RAG Evaluation and Governance Worker Plan.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf)
-> - [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/Production%20Grade%20Backend%20Concepts.pdf)
-> - [Disaggregated Hybrid Model Architecture.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/Disaggregated%20Hybrid%20Model%20Architecture.pdf)
-> - [GEMINI Master Directive](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/GEMINI.MD)
-> - [Microservice Documented API ("Doc API")](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.ai/doc-api.md)
+> - [RAG Evaluation and Governance Worker Plan.pdf](tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf)
+> - [Production Grade Backend Concepts.pdf](tasks/Production%20Grade%20Backend%20Concepts.pdf)
+> - [Disaggregated Hybrid Model Architecture.pdf](tasks/Disaggregated%20Hybrid%20Model%20Architecture.pdf)
+> - [GEMINI Master Directive](GEMINI.MD)
+> - [Microservice Documented API ("Doc API")](.ai/doc-api.md)
 
 ---
 
@@ -41,7 +41,7 @@ CI/CD Triggers / Traces ──► [ Temporal Queue: eval-task-queue ] ──► 
 
 ## 2. Calibrated Quantitative SLOs & SLIs
 
-Aligned with the authoritative specifications in [RAG Evaluation and Governance Worker Plan.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf):
+Aligned with the authoritative specifications in [RAG Evaluation and Governance Worker Plan.pdf](tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf):
 
 | Metric Dimension | Service Level Objective (SLO) | Measurement Method / SLI | Enforcement Mechanism |
 | :--- | :--- | :--- | :--- |
@@ -172,14 +172,14 @@ sequenceDiagram
 
 ## 4. Production-Grade 5-Layer Backend Architecture
 
-Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/Production%20Grade%20Backend%20Concepts.pdf):
+Aligned with [Production Grade Backend Concepts.pdf](tasks/Production%20Grade%20Backend%20Concepts.pdf):
 
 ### Layer 1: API, Routing & Interface
 
-- **Entrypoint Bootstrap ([`cmd/worker/main.py`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/cmd/worker/main.py))**:
-  - Initializes runtime environment, validates 12-factor configuration via Pydantic [Settings](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/config/settings.py), establishes ClickHouse client pools, and bootstraps the Temporal activity worker daemon.
+- **Entrypoint Bootstrap ([`cmd/worker/main.py`](cmd/worker/main.py))**:
+  - Initializes runtime environment, validates 12-factor configuration via Pydantic [Settings](internal/config/settings.py), establishes ClickHouse client pools, and bootstraps the Temporal activity worker daemon.
   - Hosts the internal FastAPI ASGI server concurrently via `asyncio.TaskGroup` on port `8080`.
-  - Exposes gRPC service `rag.eval.v1.EvaluationWorkerService` on port `50051` via Protobuf v3 contracts ([`api/proto/v1/eval_worker.proto`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/api/proto/v1/eval_worker.proto)).
+  - Exposes gRPC service `rag.eval.v1.EvaluationWorkerService` on port `50051` via Protobuf v3 contracts ([`api/proto/v1/eval_worker.proto`](api/proto/v1/eval_worker.proto)).
 - **Documentation & Operational Probe Endpoints**:
   - `GET /docs`: Interactive Swagger UI powered by OpenAPI 3.1.
   - `GET /redoc`: Interactive ReDoc UI documentation.
@@ -191,7 +191,7 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
   - ULID-based request tracing headers propagated through all probe requests and activity invocations.
   - Structured request logging middleware capturing processing duration, tenant context, and status codes.
 - **Input Validation**:
-  - Strict Pydantic v2 domain schemas ([`internal/evaluation/models.py`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/evaluation/models.py)) validating batches, sample items, context passages, and judge responses.
+  - Strict Pydantic v2 domain schemas ([`internal/evaluation/models.py`](internal/evaluation/models.py)) validating batches, sample items, context passages, and judge responses.
 - **Idempotency**:
   - Work is strictly identified and keyed by `(tenant_id, run_id, sample_idx)`. Checkpoint resumption skips previously evaluated samples without duplicate judge calls.
 
@@ -248,7 +248,7 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
     SELECT * FROM rag_governance.eval_metric_points FINAL
     WHERE tenant_id = 'acme_corp' AND run_id = '...';
     ```
-- **Direct Micro-Batching Buffer ([`internal/storage/clickhouse_sink.py`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/storage/clickhouse_sink.py))**:
+- **Direct Micro-Batching Buffer ([`internal/storage/clickhouse_sink.py`](internal/storage/clickhouse_sink.py))**:
   - High-throughput asynchronous client buffer accumulates metric records in-memory.
   - Flushes to ClickHouse when buffer reaches `CLICKHOUSE_BATCH_SIZE` (1,000 records) or `CLICKHOUSE_FLUSH_INTERVAL_SECONDS` (1.0s), preventing the creation of excessive detached parts.
 - **Forensic Hash Integrity**:
@@ -261,7 +261,7 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
 - **Temporal Task Queues & Activity Worker**:
   - Dedicated task queue: `eval-task-queue`.
   - Batch evaluation DAG workflows decompose large golden sets into activity executions with heartbeat supervision.
-  - Activity worker daemon ([`internal/temporal/worker.py`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/temporal/worker.py)) provides structured lifecycle shutdown handling OS signals (`SIGTERM`, `SIGINT`).
+  - Activity worker daemon ([`internal/temporal/worker.py`](internal/temporal/worker.py)) provides structured lifecycle shutdown handling OS signals (`SIGTERM`, `SIGINT`).
 - **KEDA Event-Driven Horizontal Autoscaling**:
   - Worker pods scale dynamically based on Temporal activity backlog depth in Prometheus:
     ```yaml
@@ -277,8 +277,9 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
         - type: prometheus
           metadata:
             serverAddress: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+            metricName: temporal_activity_backlog
             threshold: "5"
-            query: sum(temporal_activity_schedule_to_start_latency_seconds_count{task_queue="eval-task-queue"})
+            query: sum(temporal_activity_task_queue_backlog{task_queue="eval-task-queue"})
     ```
 - **Multi-Pod Judge Capacity Budgeting**:
   - Each pod enforces a local concurrency semaphore (`JUDGE_MAX_CONCURRENT_REQUESTS=20`) and rate limiter (`50 RPS`).
@@ -310,7 +311,7 @@ Aligned with [Production Grade Backend Concepts.pdf](file:///c:/Users/ANIK/Deskt
   - `eval_judge_active_concurrency`: Gauge measuring current in-flight judge queries against the cap (20).
   - `eval_judge_rate_limit_errors_total`: Counter tracking downstream HTTP 429 and `RESOURCE_EXHAUSTED` responses.
   - `eval_metric_score_value`: Gauge tracking calculated metric score values across dimensions.
-- **Outbound Judge Governor ([`internal/evaluation/ratelimiter.py`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/evaluation/ratelimiter.py))**:
+- **Outbound Judge Governor ([`internal/evaluation/ratelimiter.py`](internal/evaluation/ratelimiter.py))**:
   - **Token Bucket Rate Limiter**: 50.0 tokens/second guarded by `asyncio.Lock` eliminating concurrency stampedes.
   - **Concurrency Semaphore**: Bound to 20 concurrent requests per pod.
   - **Exponential Backoff with Full Jitter**: Backoff calculation on HTTP 429:

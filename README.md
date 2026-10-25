@@ -1,9 +1,9 @@
 # RAG Evaluation & Governance Worker (`rag-eval-governance-worker`)
 
-[![CI - RAG Evaluation & Governance Worker](https://img.shields.io/badge/CI-passing-brightgreen?logo=github-actions&logoColor=white)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.github/workflows/ci.yml)
+[![CI - RAG Evaluation & Governance Worker](https://github.com/Gemejime/Evaluation-Quality-Worker/actions/workflows/ci.yml/badge.svg)](https://github.com/Gemejime/Evaluation-Quality-Worker/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/LICENSE)
-[![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Production-green.svg)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/Architecture.md)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Architecture](https://img.shields.io/badge/Architecture-5--Layer%20Production-green.svg)](Architecture.md)
 
 `rag-eval-governance-worker` is a stateless, horizontally autoscaling batch compute microservice operating within the horizontal execution tier of the Multimodal RAG platform. It executes offline and asynchronous golden-set evaluation pipelines (Context Precision, Faithfulness / Groundedness, Answer Relevance), governs LLM judge egress with client-side token-bucket rate limiters and concurrency semaphores, micro-batches evaluation records directly into ClickHouse, and guarantees zero-recompute resumption upon pod preemption via Temporal activity heartbeating.
 
@@ -30,7 +30,7 @@
 
 ## Architectural Overview
 
-As established in [ADR-001](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/Architecture.md#architectural-decision-records-adrs), this repository decouples batch evaluation from real-time stream ingestion:
+As established in [ADR-001](Architecture.md#architectural-decision-records-adrs), this repository decouples batch evaluation from real-time stream ingestion:
 
 1. **Stream Ingestion Sanitizer (`rag-masking-sanitizer`)**: Dedicated to real-time chunk tokenization, regex/Aho-Corasick filtering, high-entropy NLP masking, and KMS-salted HMAC hashing on the ingestion path.
 2. **Batch Evaluation Worker (`rag-eval-governance-worker`)**: Dedicated to offline golden-set evaluations, LLM-as-a-judge execution, outbound egress governance, and direct ClickHouse audit persistence.
@@ -208,7 +208,7 @@ Evaluation & Quality Worker/
 
 ## Configuration & Environment Variables
 
-The microservice strictly adheres to 12-factor configuration principles via [Settings](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/internal/config/settings.py). Copy [`.env.example`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.env.example) to `.env` for local configuration:
+The microservice strictly adheres to 12-factor configuration principles via [Settings](internal/config/settings.py). Copy [`.env.example`](.env.example) to `.env` for local configuration:
 
 ```bash
 cp .env.example .env
@@ -262,7 +262,7 @@ cp .env.example .env
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/Gemejime/rag-eval-governance-worker.git
-   cd "Evaluation & Quality Worker"
+   cd rag-eval-governance-worker
    ```
 
 2. **Create and activate a virtual environment**:
@@ -326,7 +326,7 @@ Once running, access the operational endpoints:
 
 ## CLI Tooling & Operational Scripts
 
-The [`scripts/`](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/scripts) directory provides standalone operational utilities:
+The [`scripts/`](scripts/) directory provides standalone operational utilities:
 
 1. **Golden-Set Regression Gate (`scripts/trigger_regression_gate.py`)**:
    Used in CI/CD pipelines to assert quality thresholds ($\tau \ge 0.82$) against a reference golden set:
@@ -381,9 +381,9 @@ triggers:
   - type: prometheus
     metadata:
       serverAddress: http://prometheus-k8s.monitoring.svc.cluster.local:9090
-      metricName: temporal_activity_schedule_to_start_latency_seconds_count
+      metricName: temporal_activity_backlog
       threshold: "5"
-      query: sum(temporal_activity_schedule_to_start_latency_seconds_count{task_queue="eval-task-queue"})
+      query: sum(temporal_activity_task_queue_backlog{task_queue="eval-task-queue"})
 ```
 
 ---
@@ -411,9 +411,9 @@ The worker exposes Prometheus metrics at `/metrics`:
 ## Documentation & Architectural References
 
 For in-depth design documents, specifications, and runbooks:
-- [Architecture Blueprint (`Architecture.md`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/Architecture.md) — Comprehensive 5-layer backend design specification.
-- [Microservice Documented API (`.ai/doc-api.md`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.ai/doc-api.md) — Exhaustive OpenAPI schemas, gRPC protos, and ClickHouse DDL.
-- [Project Overview (`.ai/project-overview.md`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.ai/project-overview.md) — Strategic goals and SLI/SLO calibrations.
-- [Security Guidelines (`.ai/security.md`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/.ai/security.md) — Threat model, token hashing, and container hardening.
-- [Development Standards (`GEMINI.MD`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/GEMINI.MD) — Non-negotiable engineering invariants and pre-commit verification checklist.
-- [RAG Plan Reference (`tasks/RAG Evaluation and Governance Worker Plan.pdf`)](file:///c:/Users/ANIK/Desktop/Gemejime/Evaluation%20&%20Quality%20Worker/tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf) — Baseline implementation plan.
+- [Architecture Blueprint (`Architecture.md`)](Architecture.md) — Comprehensive 5-layer backend design specification.
+- [Microservice Documented API (`.ai/doc-api.md`)](.ai/doc-api.md) — Exhaustive OpenAPI schemas, gRPC protos, and ClickHouse DDL.
+- [Project Overview (`.ai/project-overview.md`)](.ai/project-overview.md) — Strategic goals and SLI/SLO calibrations.
+- [Security Guidelines (`.ai/security.md`)](.ai/security.md) — Threat model, token hashing, and container hardening.
+- [Development Standards (`GEMINI.MD`)](GEMINI.MD) — Non-negotiable engineering invariants and pre-commit verification checklist.
+- [RAG Plan Reference (`tasks/RAG Evaluation and Governance Worker Plan.pdf`)](tasks/RAG%20Evaluation%20and%20Governance%20Worker%20Plan.pdf) — Baseline implementation plan.
