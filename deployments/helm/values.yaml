@@ -25,13 +25,15 @@ env:
   JUDGE_MAX_CONCURRENT_REQUESTS: "20"
   JUDGE_RATE_LIMIT_RPS: "50.0"
   CLICKHOUSE_HOST: "clickhouse.storage.svc.cluster.local"
-  CLICKHOUSE_PORT: "9000"
+  CLICKHOUSE_PORT: "8123"
   CLICKHOUSE_DATABASE: "rag_governance"
   CLICKHOUSE_BATCH_SIZE: "1000"
   CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "1.0"
   QUALITY_GATE_MIN_FAITHFULNESS: "0.82"
   QUALITY_GATE_MIN_CONTEXT_PRECISION: "0.82"
   QUALITY_GATE_MIN_ANSWER_RELEVANCE: "0.82"
+  # Optional secret reference for sensitive credentials (e.g. CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
+  secretName: ""
 
 # Node sizing calibrated for compute-optimized c6i.2xlarge instances
 resources:
@@ -69,7 +71,7 @@ keda:
   cooldownPeriod: 300
   prometheusServerAddress: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
   threshold: "5"
-  query: 'sum(temporal_activity_schedule_to_start_latency_seconds_count{task_queue="eval-task-queue"})'
+  query: 'sum(temporal_activity_task_queue_backlog{task_queue="{{ .Values.env.EVAL_TASK_QUEUE }}"})'
 
 # Argo Rollouts progressive canary delivery configuration
 rollout:

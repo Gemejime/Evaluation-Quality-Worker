@@ -103,6 +103,8 @@ async def test_activity_out_of_order_resumption(
         "completed_samples": 2,
         "completed_sample_indices": [0, 2],
         "last_checkpoint_timestamp_utc": "2026-10-25T00:00:00Z",
+        "metric_score_sums": {"context_precision": 2.0},
+        "metric_score_counts": {"context_precision": 2},
     }
 
     def record_heartbeat(details: Any) -> None:
@@ -266,6 +268,16 @@ async def test_activity_all_samples_already_completed(
         "completed_samples": 4,
         "completed_sample_indices": [0, 1, 2, 3],
         "last_checkpoint_timestamp_utc": "2026-10-25T00:00:00Z",
+        "metric_score_sums": {
+            "faithfulness": 3.6,
+            "context_precision": 3.6,
+            "answer_relevance": 3.6,
+        },
+        "metric_score_counts": {
+            "faithfulness": 4,
+            "context_precision": 4,
+            "answer_relevance": 4,
+        },
     }
 
     monkeypatch.setattr(activities, "get_heartbeat_details", lambda: checkpoint_state)
@@ -280,4 +292,114 @@ async def test_activity_all_samples_already_completed(
     assert result.total_samples == 4
     assert result.evaluated_samples_count == 4
     assert result.failed_samples_count == 0
+    assert result.avg_faithfulness == 0.9
+    assert result.avg_context_precision == 0.9
+    assert result.avg_answer_relevance == 0.9
     assert result.passed_quality_gates is True
+
+
+@pytest.mark.asyncio
+async def test_activity_unrecoverable_scores_recomputes_run(
+    sample_triplets: list[GoldenSampleItem],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify activity recomputes all samples if checkpoint scores cannot be recovered."""
+    settings = Settings(
+        ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=0.1,
+        JUDGE_MAX_CONCURRENT_REQUESTS=5,
+    )
+    judge = MockSimpleJudge()
+    governor = OutboundJudgeGovernor(settings)
+    runner = BatchEvaluationRunner(judge_client=judge, governor=governor, settings=settings)
+    activity_instance = EvaluateGoldenSetActivity(runner=runner, settings=settings)
+
+    # Checkpoint with completed indices but NO metric_score_counts
+    checkpoint_state = {
+        "tenant_id": "tenant-recompute",
+        "run_id": "run-recompute",
+        "current_sample_idx": 3,
+        "total_samples": 4,
+        "current_sample_id": "sample-3",
+        "completed_samples": 4,
+        "completed_sample_indices": [0, 1, 2, 3],
+        "last_checkpoint_timestamp_utc": "2026-10-25T00:00:00Z",
+        "metric_score_sums": dict[str, float](),
+        "metric_score_counts": dict[str, int](),
+    }
+
+    def noop_hb(*args: Any) -> None:
+        pass
+
+    monkeypatch.setattr(activities, "get_heartbeat_details", lambda: checkpoint_state)
+    monkeypatch.setattr(activity, "heartbeat", noop_hb)
+
+    activity_input = EvaluateGoldenSetInput(
+        tenant_id="tenant-recompute",
+        run_id="run-recompute",
+        samples=sample_triplets,
+        eval_metrics=["context_precision"],
+    )
+
+    result = await activity_instance.run(activity_input)
+    # Because scores were unrecoverable, all 4 were recomputed
+    assert result.total_samples == 4
+    assert result.evaluated_samples_count == 4
+    assert result.failed_samples_count == 0
+    assert result.avg_context_precision > 0.0
+
+
+@pytest.mark.asyncio
+async def test_activity_load_samples_from_s3_object_store() -> None:
+    """Verify _load_samples_from_uri loads s3:// URIs using the provided object_store_reader."""
+    settings = Settings()
+    judge = MockSimpleJudge()
+    governor = OutboundJudgeGovernor(settings)
+    runner = BatchEvaluationRunner(judge_client=judge, governor=governor, settings=settings)
+
+    sample_payload = [
+        {
+            "sample_id": "s3-sample-1",
+            "sample_idx": 0,
+            "query": "What is RAG?",
+            "retrieved_contexts": ["RAG is retrieval augmented generation."],
+            "generated_answer": "Retrieval Augmented Generation.",
+        }
+    ]
+
+    import json
+
+    class MockS3Reader:
+        async def read_uri(self, uri: str) -> str:
+            assert uri == "s3://eval-bucket/golden_set.json"
+            return json.dumps(sample_payload)
+
+    activity_instance = EvaluateGoldenSetActivity(
+        runner=runner,
+        settings=settings,
+        object_store_reader=MockS3Reader(),
+    )
+
+    loaded = await activity_instance._load_samples_from_uri("s3://eval-bucket/golden_set.json")
+    assert len(loaded) == 1
+    assert loaded[0].sample_id == "s3-sample-1"
+
+
+@pytest.mark.asyncio
+async def test_activity_load_samples_forbidden_directory() -> None:
+    """Verify _load_samples_from_uri raises PermissionError for forbidden base directories."""
+    settings = Settings()
+    judge = MockSimpleJudge()
+    governor = OutboundJudgeGovernor(settings)
+    runner = BatchEvaluationRunner(judge_client=judge, governor=governor, settings=settings)
+
+    from pathlib import Path
+
+    allowed = [Path("/isolated/secure/dir")]
+    activity_instance = EvaluateGoldenSetActivity(
+        runner=runner,
+        settings=settings,
+        allowed_base_dirs=allowed,
+    )
+
+    with pytest.raises(PermissionError):
+        await activity_instance._load_samples_from_uri("file:///etc/shadow")

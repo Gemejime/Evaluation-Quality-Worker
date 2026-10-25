@@ -27,6 +27,8 @@ class EvaluationHeartbeatDetails(BaseModel):
     completed_samples: int
     completed_sample_indices: list[int] = Field(default_factory=list)
     last_checkpoint_timestamp_utc: str
+    metric_score_sums: dict[str, float] = Field(default_factory=dict)
+    metric_score_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class BatchEvaluationInput(BaseModel):

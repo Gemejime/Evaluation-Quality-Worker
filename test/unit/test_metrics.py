@@ -245,4 +245,3 @@ async def test_faithfulness_validation_errors() -> None:
     )
     with pytest.raises(ValueError, match="missing valid 'extracted_claims' list"):
         await evaluator_bad_type.evaluate(sample)
-

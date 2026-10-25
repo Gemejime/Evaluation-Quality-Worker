@@ -22,5 +22,5 @@ spec:
         serverAddress: {{ .Values.keda.prometheusServerAddress | quote }}
         metricName: temporal_activity_backlog
         threshold: {{ .Values.keda.threshold | quote }}
-        query: {{ .Values.keda.query | quote }}
+        query: {{ tpl .Values.keda.query . | quote }}
 {{- end }}

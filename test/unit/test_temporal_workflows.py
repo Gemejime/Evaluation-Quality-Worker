@@ -64,7 +64,7 @@ async def test_workflow_scoped_metric_subset(monkeypatch: pytest.MonkeyPatch) ->
         avg_faithfulness=0.95,
         avg_context_precision=0.50,
         avg_answer_relevance=0.50,
-        passed_quality_gates=False,
+        passed_quality_gates=True,
         duration_seconds=3.0,
         dlq_samples=[],
     )

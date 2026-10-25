@@ -1,3 +1,8 @@
+# ==============================================================================
+# REFERENCE ONLY: Non-deployable architectural reference manifest.
+# The production Rollout is managed by the Helm chart at:
+# deployments/helm/templates/rollout.yaml
+# ==============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:

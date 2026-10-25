@@ -43,6 +43,7 @@ class BatchEvaluationWorkflow:
         result: EvaluateGoldenSetResult = await workflow.execute_activity(
             "EvaluateGoldenSetActivity",
             activity_input,
+            result_type=EvaluateGoldenSetResult,
             start_to_close_timeout=timedelta(seconds=600),
             heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(
@@ -52,24 +53,7 @@ class BatchEvaluationWorkflow:
             ),
         )
 
-        # Scoped quality gate evaluation based on active eval_metrics
-        passed_quality_gates = True
-        min_threshold = 0.82
-
-        if "faithfulness" in workflow_input.eval_metrics:
-            if result.avg_faithfulness < min_threshold:
-                passed_quality_gates = False
-
-        if "context_precision" in workflow_input.eval_metrics:
-            if result.avg_context_precision < min_threshold:
-                passed_quality_gates = False
-
-        if "answer_relevance" in workflow_input.eval_metrics:
-            if result.avg_answer_relevance < min_threshold:
-                passed_quality_gates = False
-
-        if result.failed_samples_count > 0:
-            passed_quality_gates = False
+        passed_quality_gates = result.passed_quality_gates
 
         logger.info(
             "batch_evaluation_workflow_finished",

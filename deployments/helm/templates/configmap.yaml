@@ -7,8 +7,8 @@ metadata:
 data:
   LD_PRELOAD: {{ .Values.env.LD_PRELOAD | default "/usr/lib/x86_64-linux-gnu/libjemalloc.so" | quote }}
   ENVIRONMENT: {{ .Values.env.ENVIRONMENT | default "production" | quote }}
-  PORT: {{ .Values.service.port | default 8080 | quote }}
-  GRPC_PORT: {{ .Values.service.grpcPort | default 50051 | quote }}
+  PORT: "8080"
+  GRPC_PORT: "50051"
   TEMPORAL_HOST: {{ .Values.env.TEMPORAL_HOST | quote }}
   TEMPORAL_NAMESPACE: {{ .Values.env.TEMPORAL_NAMESPACE | default "default" | quote }}
   EVAL_TASK_QUEUE: {{ .Values.env.EVAL_TASK_QUEUE | default "eval-task-queue" | quote }}
@@ -19,7 +19,7 @@ data:
   JUDGE_MAX_CONCURRENT_REQUESTS: {{ .Values.env.JUDGE_MAX_CONCURRENT_REQUESTS | default "20" | quote }}
   JUDGE_RATE_LIMIT_RPS: {{ .Values.env.JUDGE_RATE_LIMIT_RPS | default "50.0" | quote }}
   CLICKHOUSE_HOST: {{ .Values.env.CLICKHOUSE_HOST | quote }}
-  CLICKHOUSE_PORT: {{ .Values.env.CLICKHOUSE_PORT | default "9000" | quote }}
+  CLICKHOUSE_PORT: {{ .Values.env.CLICKHOUSE_PORT | default "8123" | quote }}
   CLICKHOUSE_DATABASE: {{ .Values.env.CLICKHOUSE_DATABASE | default "rag_governance" | quote }}
   CLICKHOUSE_BATCH_SIZE: {{ .Values.env.CLICKHOUSE_BATCH_SIZE | default "1000" | quote }}
   CLICKHOUSE_FLUSH_INTERVAL_SECONDS: {{ .Values.env.CLICKHOUSE_FLUSH_INTERVAL_SECONDS | default "1.0" | quote }}

@@ -14,6 +14,8 @@ spec:
       value: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
     - name: min-quality-threshold
       value: "0.82"
+    - name: pipeline-version
+      value: "v1.0.0"
   metrics:
     # 1. Quality Release Gate Metric Check: tau >= 0.82
     - name: eval-quality-release-gate
@@ -25,7 +27,7 @@ spec:
         prometheus:
           address: "{{ args.prometheus-server }}"
           query: |
-            min(eval_metric_score_value{metric_name=~"context_precision|faithfulness|answer_relevance"})
+            min(eval_metric_score_value{metric_name=~"context_precision|faithfulness|answer_relevance",pipeline_version=~"{{ args.pipeline-version }}"})
 
     # 2. Downstream 429 Error Storm Check: Rate limit errors rate must stay 0
     - name: eval-judge-rate-limit-budget
@@ -37,7 +39,7 @@ spec:
         prometheus:
           address: "{{ args.prometheus-server }}"
           query: |
-            sum(rate(eval_judge_rate_limit_errors_total{error_type="exhausted"}[5m])) or on() vector(0)
+            sum(rate(eval_judge_rate_limit_errors_total{error_type="429"}[5m])) or on() vector(0)
 
     # 3. Microservice Event-Loop Health Probe Latency Check: P99 latency <= 50ms
     - name: probe-liveness-latency
@@ -49,4 +51,4 @@ spec:
         prometheus:
           address: "{{ args.prometheus-server }}"
           query: |
-            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{handler="/healthz"}[5m])) by (le)) or on() vector(0.005)
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{handler="/healthz"}[5m])) by (le))

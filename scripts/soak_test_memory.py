@@ -197,13 +197,19 @@ async def run_soak_test(args: argparse.Namespace) -> int:
     rss_history_mb: list[float] = []
 
     start_time = time.perf_counter()
-    max_duration_seconds = args.duration_hours * 3600.0 if args.duration_hours > 0 else float("inf")
+    has_duration_limit = args.duration_hours > 0
+    max_duration_seconds = args.duration_hours * 3600.0 if has_duration_limit else float("inf")
 
     iteration = 0
-    while iteration < args.iterations:
-        if time.perf_counter() - start_time >= max_duration_seconds:
-            print("\n[INFO] Maximum duration reached, concluding soak execution.")
-            break
+    while True:
+        elapsed = time.perf_counter() - start_time
+        if has_duration_limit:
+            if elapsed >= max_duration_seconds:
+                print("\n[INFO] Maximum duration reached, concluding soak execution.")
+                break
+        else:
+            if iteration >= args.iterations:
+                break
 
         iteration += 1
         batch_input = BatchEvaluationInput(
@@ -232,10 +238,19 @@ async def run_soak_test(args: argparse.Namespace) -> int:
                     if baseline_rss_mb is not None
                     else ""
                 )
-                print(
-                    f"Iteration {iteration:4d}/{args.iterations}: "
-                    f"RSS = {current_rss_mb:6.2f} MB {delta_str}"
-                )
+                if has_duration_limit:
+                    elapsed_min = (time.perf_counter() - start_time) / 60.0
+                    total_min = max_duration_seconds / 60.0
+                    progress_info = f"{elapsed_min:.1f}m / {total_min:.1f}m"
+                    print(
+                        f"Iteration {iteration:4d} ({progress_info}): "
+                        f"RSS = {current_rss_mb:6.2f} MB {delta_str}"
+                    )
+                else:
+                    print(
+                        f"Iteration {iteration:4d}/{args.iterations}: "
+                        f"RSS = {current_rss_mb:6.2f} MB {delta_str}"
+                    )
 
     await sink.close()
     elapsed_seconds = time.perf_counter() - start_time

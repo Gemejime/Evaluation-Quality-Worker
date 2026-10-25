@@ -45,7 +45,9 @@ class DeterministicFlakyJudge(BaseJudgeClient):
         self.attempts[prompt] = count + 1
 
         if count < self.fails_per_request:
-            raise RuntimeError("HTTP 429: Too Many Requests - Rate limit exceeded")
+            err = RuntimeError("HTTP 429: Too Many Requests - Rate limit exceeded")
+            err.status_code = 429  # type: ignore[attr-defined]
+            raise err
 
         payload = {
             "verdicts": [{"chunk_idx": 0, "verdict": 1, "reasoning": "Valid chunk."}],
@@ -208,11 +210,17 @@ async def test_temporal_activity_heartbeat_ticker_during_backoff() -> None:
         eval_metrics=["context_precision"],
     )
 
-    mock_heartbeat = MagicMock()
+    ticker_heartbeats: list[dict[str, Any]] = []
+
+    def _record_heartbeat(details: Any) -> None:
+        if isinstance(details, dict) and details.get("completed_samples", 0) == 0:
+            ticker_heartbeats.append(details)
+
+    mock_heartbeat = MagicMock(side_effect=_record_heartbeat)
     with patch("internal.temporal.activities.activity.heartbeat", mock_heartbeat):
         result = await activity_runner.run(input_data)
 
     assert result.evaluated_samples_count == 1
     assert result.failed_samples_count == 0
-    # Heartbeat must have been called at least once by ticker/completion
-    assert mock_heartbeat.call_count >= 1
+    # Assert ticker emitted heartbeat during backoff before sample completion
+    assert len(ticker_heartbeats) >= 1

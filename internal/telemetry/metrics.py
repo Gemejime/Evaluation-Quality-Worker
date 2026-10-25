@@ -30,7 +30,7 @@ EVAL_JUDGE_ACTIVE_CONCURRENCY = Gauge(
 EVAL_METRIC_SCORE_VALUE = Gauge(
     "eval_metric_score_value",
     "Aggregate score value per evaluation run",
-    labelnames=["metric_name"],
+    labelnames=["metric_name", "pipeline_version"],
     registry=REGISTRY,
 )
 

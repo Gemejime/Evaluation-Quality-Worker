@@ -4,6 +4,7 @@ import asyncio
 
 import structlog
 from temporalio.client import Client
+from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Worker
 
 from internal.config.settings import Settings, get_settings
@@ -53,6 +54,7 @@ class TemporalWorkerManager:
 
         backoff = 1.0
         max_backoff = 30.0
+        self.readiness.set_status("temporal", "connecting")
 
         while not self._shutdown_event.is_set():
             try:
@@ -64,6 +66,7 @@ class TemporalWorkerManager:
                 self._client = await Client.connect(
                     self.settings.TEMPORAL_HOST,
                     namespace=self.settings.TEMPORAL_NAMESPACE,
+                    data_converter=pydantic_data_converter,
                 )
                 self.readiness.set_status("temporal", "polling")
                 logger.info(

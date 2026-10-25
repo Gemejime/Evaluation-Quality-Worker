@@ -6,7 +6,9 @@ metadata:
   labels:
     {{- include "rag-eval-governance-worker.labels" . | nindent 4 }}
 spec:
+  {{- if not (and .Values.keda .Values.keda.enabled) }}
   replicas: {{ .Values.replicaCount | default 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "rag-eval-governance-worker.selectorLabels" . | nindent 6 }}
@@ -38,6 +40,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "rag-eval-governance-worker.fullname" . }}-config
+            {{- if .Values.env.secretName }}
+            - secretRef:
+                name: {{ .Values.env.secretName }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

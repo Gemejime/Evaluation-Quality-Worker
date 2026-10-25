@@ -231,7 +231,6 @@ class ClickHouseSink:
             to_flush = list(self._buffer)
             self._buffer.clear()
 
-        client = await self._get_client_async()
         columns = [
             "tenant_id",
             "run_id",
@@ -263,6 +262,7 @@ class ClickHouseSink:
         ]
 
         def _insert_batch() -> None:
+            client = self._get_client()
             client.insert(
                 "eval_metric_points",
                 rows,

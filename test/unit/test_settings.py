@@ -8,7 +8,7 @@ from internal.config.settings import Settings, get_settings
 
 def test_default_settings() -> None:
     """Verify that default settings conform to microservice platform specifications."""
-    settings = Settings()
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.SERVICE_NAME == "rag-eval-governance-worker"
     assert settings.PORT == 8080
@@ -103,4 +103,3 @@ def test_env_example_completeness() -> None:
         _env_file_encoding="utf-8",
     )
     assert example_settings.SERVICE_NAME == "rag-eval-governance-worker"
-

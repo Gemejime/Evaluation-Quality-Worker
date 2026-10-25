@@ -28,7 +28,7 @@ def test_metrics_registration_and_observation() -> None:
     # Gauge updates
     EVAL_JUDGE_ACTIVE_CONCURRENCY.labels(judge_model="meta-llama/Llama-3.1-70B-Instruct").set(8)
 
-    EVAL_METRIC_SCORE_VALUE.labels(metric_name="faithfulness").set(0.92)
+    EVAL_METRIC_SCORE_VALUE.labels(metric_name="faithfulness", pipeline_version="v1.0.0").set(0.92)
 
     # Counter increments
     EVAL_JUDGE_RATE_LIMIT_ERRORS_TOTAL.labels(

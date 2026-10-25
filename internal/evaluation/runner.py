@@ -223,10 +223,7 @@ class BatchEvaluationRunner:
             ),
         }
 
-        active_metrics = [
-            m for m in batch_input.eval_metrics
-            if m in scores and len(scores[m]) > 0
-        ]
+        active_metrics = [m for m in batch_input.eval_metrics if m in scores and len(scores[m]) > 0]
 
         if not active_metrics or failed_samples_count > 0:
             passed_quality_gates = False
@@ -238,14 +235,19 @@ class BatchEvaluationRunner:
             )
 
         # Update Prometheus metrics
+        version = batch_input.pipeline_version
         if "faithfulness" in scores:
-            EVAL_METRIC_SCORE_VALUE.labels(metric_name="faithfulness").set(avg_faithfulness)
+            EVAL_METRIC_SCORE_VALUE.labels(
+                metric_name="faithfulness", pipeline_version=version
+            ).set(avg_faithfulness)
         if "context_precision" in scores:
-            EVAL_METRIC_SCORE_VALUE.labels(metric_name="context_precision").set(
-                avg_context_precision
-            )
+            EVAL_METRIC_SCORE_VALUE.labels(
+                metric_name="context_precision", pipeline_version=version
+            ).set(avg_context_precision)
         if "answer_relevance" in scores:
-            EVAL_METRIC_SCORE_VALUE.labels(metric_name="answer_relevance").set(avg_answer_relevance)
+            EVAL_METRIC_SCORE_VALUE.labels(
+                metric_name="answer_relevance", pipeline_version=version
+            ).set(avg_answer_relevance)
 
         status_label = "completed" if failed_samples_count == 0 else "completed_with_errors"
         EVAL_BATCH_DURATION_SECONDS.labels(status=status_label).observe(duration_seconds)
