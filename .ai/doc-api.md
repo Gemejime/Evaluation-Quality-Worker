@@ -141,6 +141,7 @@ class RunEvaluationWorkflowOutput(BaseModel):
     run_id: str
     total_samples: int
     evaluated_samples: int
+    failed_samples_count: int
     avg_faithfulness: float
     avg_context_precision: float
     avg_answer_relevance: float
@@ -151,8 +152,8 @@ class RunEvaluationWorkflowOutput(BaseModel):
 #### Activity: `EvaluateGoldenSetActivity`
 - **Module**: `internal.temporal.activities`
 - **Queue**: `eval-task-queue`
-- **Heartbeat Timeout**: `30s` (Emits heartbeat every `10s` per evaluated sample)
-- **Zero-Recompute Checkpointing**: Checks `activity.get_heartbeat_details()` on startup. Resumes execution at the last acknowledged checkpoint. If a crash occurs before heartbeat emission, sample $N$ may re-execute (at-least-once), while ClickHouse deduplication ensures zero duplicate persisted rows.
+- **Heartbeat Timeout**: `30s` (Emits heartbeat every `10s` per evaluated sample and background ticker)
+- **Zero-Recompute Checkpointing**: Checks `get_heartbeat_details()` on startup. Filters already completed samples via set difference `remaining = [s for s in samples if s.sample_idx not in completed_sample_indices]`. This guarantees zero skipped samples when concurrent evaluations complete out-of-order.
 - **Fault Isolation & Dead Letter Queue (DLQ)**:
   - Poison-pill samples (schema parsing failures, unrecoverable judge timeouts after 5 retries, corrupted payloads) are captured into an evaluation dead-letter queue (DLQ) and increment `failed_samples_count`.
   - An individual sample failure NEVER fails the overall activity; processing continues seamlessly across remaining golden samples.
@@ -171,8 +172,12 @@ class GoldenSampleItem(BaseModel):
 class EvaluateGoldenSetInput(BaseModel):
     tenant_id: str
     run_id: str
-    samples: list[GoldenSampleItem]
+    dataset_id: str = "golden-set"
+    samples: list[GoldenSampleItem] = []
+    golden_set_uri: str | None = None
     concurrency_limit: int = 20
+    eval_metrics: list[str] = ["context_precision", "faithfulness", "answer_relevance"]
+    pipeline_version: str = "v1.0.0"
 
 
 class EvaluationHeartbeatDetails(BaseModel):
@@ -182,15 +187,23 @@ class EvaluationHeartbeatDetails(BaseModel):
     total_samples: int
     current_sample_id: str
     completed_samples: int
+    completed_sample_indices: list[int] = []
     last_checkpoint_timestamp_utc: str
 
 
 class EvaluateGoldenSetResult(BaseModel):
     tenant_id: str
     run_id: str
+    dataset_id: str
+    total_samples: int
     evaluated_samples_count: int
     failed_samples_count: int
+    avg_faithfulness: float
+    avg_context_precision: float
+    avg_answer_relevance: float
+    passed_quality_gates: bool
     duration_seconds: float
+    dlq_samples: list[dict[str, Any]] = []
 
 
 class BatchEvaluationInput(BaseModel):

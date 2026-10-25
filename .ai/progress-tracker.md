@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-- **Phase 2: Lean Eval Runner & Direct ClickHouse Sink** (🟢 Completed)
+- **Phase 3: Temporal Task Queues, Rate Limiting & DLQ** (🟢 Completed)
 
 ## Current Goal
 
-- Prepare for Phase 3: Temporal task queue activity integration, CI/CD regression gates, and end-to-end activity resilience.
+- Prepare for Phase 4: Chaos hardening, 429 flood injection, soak testing, and throughput benchmarking on c6i.2xlarge.
 
 ---
 
@@ -16,7 +16,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **Phase 1** | Weeks 1–2 | Decoupling & Batch Worker Foundation | • `.gitignore` and `.github/workflows/ci.yml` established.<br>• Full `.ai` context and `GEMINI.MD` aligned with backend concepts & ADR-001.<br>• Protobuf v3 contract (`api/proto/v1/eval_worker.proto`) defined and compiled.<br>• Packaging and dependency environment configured (`pyproject.toml`, Dockerfile with `jemalloc`).<br>• FastAPI probe server (`/healthz`, `/ready`, `/docs`, `/redoc`, `/api/docs`, `/metrics`) and async runner daemon scaffold.<br>• Comprehensive unit test suite (`test/unit/`) validating settings, telemetry, and probes. | 🟢 Completed |
 | **Phase 2** | Weeks 3–4 | Lean Eval Runner & Direct ClickHouse Sink | • Native prompt-based judge adapter targeting Triton/vLLM endpoints (with fallback to `rag-prompt-registry-service`).<br>• Implementation of core RAG triad metrics with structured JSON schemas (Faithfulness, Context Precision, Answer Relevance).<br>• Direct micro-batched ClickHouse writer with buffer tables (`evaluation_runs`, `eval_metric_points` with `ReplacingMergeTree`).<br>• Token-bucket rate limiter, concurrency governor (20 cap), full jitter backoff on 429, and decoupled circuit breaker.<br>• Batch runner with sample-level DLQ fault isolation and secured structured logging audit.<br>• Comprehensive unit tests (33 tests) passing cleanly under strict typing. | 🟢 Completed |
-| **Phase 3** | Weeks 5–6 | Temporal Task Queues, Rate Limiting & DLQ | • Temporal activity runner (`eval-task-queue`) with per-sample 10s heartbeating and DLQ fault isolation.<br>• Token-bucket rate limiter enforcing outbound judge concurrency caps (max 20) with exponential backoff and circuit breaker.<br>• CI/CD webhook trigger integrating golden-set regression gates ($\tau \ge 0.82$). | ⚪ Queued |
+| **Phase 3** | Weeks 5–6 | Temporal Task Queues, Rate Limiting & DLQ | • Temporal activity runner (`eval-task-queue`) with per-sample 10s heartbeating and DLQ fault isolation.<br>• Token-bucket rate limiter enforcing outbound judge concurrency caps (max 20) with exponential backoff and circuit breaker.<br>• Zero-recompute resumption with out-of-order concurrency set difference filtering.<br>• CI/CD golden-set regression quality gates ($\tau \ge 0.82$) blocking pull requests on regressions.<br>• Kubernetes Helm blueprint with c6i.2xlarge sizing and KEDA queue backlog autoscaler.<br>• Comprehensive unit test suite (49 tests) passing under strict typing. | 🟢 Completed |
 | **Phase 4** | Weeks 7–8 | Chaos Hardening & Benchmarking | • Evaluation throughput benchmarks: 100-sample golden set $P95 \le 180$s on `c6i.2xlarge`.<br>• Simulated judge 429 flood testing verifying circuit breaker trip, non-blocking queue pause, and jittered resumption.<br>• 12-hour soak testing under `jemalloc` validating RSS stability below 2.0 GiB. | ⚪ Queued |
 
 ---
@@ -76,6 +76,31 @@
     - Secured Logging: Strict redaction of raw prompt texts, context passages, and generated answers; emitting only truncated 16-character reasoning hashes (`sha256(reasoning)[:16]`), token counts, and execution latencies.
   - **Comprehensive Unit Test Suite** (`test/unit/`):
     - 33 automated tests covering judge client parsing, rate limiter state transitions, triad metric formulas, ClickHouse micro-batch buffering, DLQ fault isolation, and secured logging redaction.
+- **Phase 3 Temporal Task Queues, Rate Limiting & DLQ**:
+  - **Temporal Workflow & Activity Data Models** (`internal/temporal/models.py`):
+    - `RunEvaluationWorkflowInput`, `RunEvaluationWorkflowOutput`, `EvaluateGoldenSetInput`, `EvaluateGoldenSetResult`, and `EvaluationHeartbeatDetails`.
+    - Checkpoint payload supporting `completed_sample_indices: list[int]` for set-difference resumption.
+  - **Temporal Activity Runner with Out-of-Order Resumption & Dual Heartbeating** (`internal/temporal/activities.py`):
+    - `@activity.defn(name="EvaluateGoldenSetActivity")` on `eval-task-queue`.
+    - Zero-recompute resumption via set difference: `remaining_samples = [s for s in samples if s.sample_idx not in completed_sample_indices]`, guaranteeing no skipped samples under out-of-order execution.
+    - Dual-trigger heartbeating: periodic background ticker (every 10s) preventing timeouts on judge backoff delays + immediate per-sample completion callback updating checkpoint.
+    - Graceful cancellation handling: flushes buffered ClickHouse records on `CancelledError` before re-raising.
+    - Sample-level DLQ quarantine: poison-pill samples isolate errors without crashing batch execution.
+  - **Batch Evaluation Workflow Orchestration** (`internal/temporal/workflows.py`):
+    - `@workflow.defn(name="BatchEvaluationWorkflow")` with activity timeouts (`start_to_close=600s`, `heartbeat=30s`) and retry policy.
+    - Scoped release quality gate enforcement ($\tau \ge 0.82$, `failed_samples_count == 0`) across active metric list.
+  - **Resilient Temporal Worker Daemon & Lifecycle Integration** (`internal/temporal/worker.py` & `cmd/worker/main.py`):
+    - `TemporalWorkerManager` with automatic non-fatal reconnection loop updating `ReadinessManager` status (`temporal="polling"` vs `"unreachable"`).
+    - Integrated into `asyncio.TaskGroup` in `cmd/worker/main.py`.
+  - **Golden-Set Regression Gate & CI/CD Pipeline Integration** (`test/fixtures/golden_set.json`, `scripts/trigger_regression_gate.py`, `.github/workflows/ci.yml`):
+    - Realistic query-context-answer golden-set fixture.
+    - Standalone CLI runner with `--mock-judge` flag for offline validation.
+    - CI/CD workflow step asserting release quality gates ($\tau \ge 0.82$, DLQ = 0).
+  - **Kubernetes Helm Deployment Blueprint** (`deployments/helm/values.yaml`, `deployments/helm/templates/scaledobject.yaml`):
+    - Calibrated resource sizing for AWS `c6i.2xlarge` compute-optimized nodes (`2000m / 4000m` CPU, `2.0Gi / 3.5Gi` RAM, `LD_PRELOAD` jemalloc).
+    - KEDA `ScaledObject` driven by Prometheus metric monitoring Temporal queue backlog.
+  - **Comprehensive Automated Test Suite** (`test/unit/`):
+    - 49 unit tests all passing with 100% success rate under strict typing.
 
 ---
 
