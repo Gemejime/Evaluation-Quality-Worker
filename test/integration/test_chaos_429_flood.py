@@ -180,7 +180,7 @@ async def test_probes_maintain_sub_5ms_during_429_backoff_storm() -> None:
 async def test_temporal_activity_heartbeat_ticker_during_backoff() -> None:
     """Verify background heartbeat ticker fires every interval during prolonged judge backoff."""
     settings = Settings(
-        ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=0.05,  # Accelerated ticker for test
+        ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=0.02,  # Accelerated ticker for test
         JUDGE_BACKOFF_BASE_SECONDS=0.05,
         JUDGE_BACKOFF_MAX_SECONDS=0.1,
         JUDGE_429_MAX_RETRIES=3,
@@ -217,7 +217,10 @@ async def test_temporal_activity_heartbeat_ticker_during_backoff() -> None:
             ticker_heartbeats.append(details)
 
     mock_heartbeat = MagicMock(side_effect=_record_heartbeat)
-    with patch("internal.temporal.activities.activity.heartbeat", mock_heartbeat):
+    with (
+        patch("internal.temporal.activities.activity.heartbeat", mock_heartbeat),
+        patch("internal.evaluation.ratelimiter.random.uniform", return_value=0.08),
+    ):
         result = await activity_runner.run(input_data)
 
     assert result.evaluated_samples_count == 1
