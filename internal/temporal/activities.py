@@ -249,6 +249,8 @@ class EvaluateGoldenSetActivity:
             _metric_results: list[MetricResult],
         ) -> None:
             nonlocal last_sample_id, last_sample_idx
+            if self.runner.sink is not None:
+                await self.runner.sink.flush()
             completed_indices.add(sample_idx)
             for r in _metric_results:
                 metric_score_sums[r.metric_name] = (

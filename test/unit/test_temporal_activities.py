@@ -403,3 +403,57 @@ async def test_activity_load_samples_forbidden_directory() -> None:
 
     with pytest.raises(PermissionError):
         await activity_instance._load_samples_from_uri("file:///etc/shadow")
+
+
+@pytest.mark.asyncio
+async def test_activity_on_sample_complete_flushes_sink(
+    sample_triplets: list[GoldenSampleItem],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify runner.sink is flushed upon each completed sample before heartbeat."""
+    settings = Settings(
+        ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=0.1,
+        JUDGE_MAX_CONCURRENT_REQUESTS=5,
+    )
+    judge = MockSimpleJudge()
+    governor = OutboundJudgeGovernor(settings)
+    mock_sink = AsyncMock()
+    runner = BatchEvaluationRunner(
+        judge_client=judge,
+        governor=governor,
+        sink=mock_sink,
+        settings=settings,
+    )
+    activity_instance = EvaluateGoldenSetActivity(runner=runner, settings=settings)
+
+    heartbeats: list[dict[str, Any]] = []
+    call_order: list[str] = []
+
+    async def mock_flush() -> None:
+        call_order.append("flush")
+
+    mock_sink.flush.side_effect = mock_flush
+
+    def record_hb(details: Any) -> None:
+        call_order.append("heartbeat")
+        heartbeats.append(details)
+
+    monkeypatch.setattr(activities, "get_heartbeat_details", lambda: None)
+    monkeypatch.setattr(activity, "heartbeat", record_hb)
+
+    activity_input = EvaluateGoldenSetInput(
+        tenant_id="tenant-flush",
+        run_id="run-flush",
+        samples=sample_triplets[:2],
+        eval_metrics=["context_precision"],
+    )
+
+    result = await activity_instance.run(activity_input)
+    assert result.evaluated_samples_count == 2
+    # Flush must occur before heartbeat for each sample
+    assert call_order[0] == "flush"
+    assert call_order[1] == "heartbeat"
+    assert call_order[2] == "flush"
+    assert call_order[3] == "heartbeat"
+    assert mock_sink.flush.await_count >= 3
+    assert mock_sink.insert_run.await_count >= 1
