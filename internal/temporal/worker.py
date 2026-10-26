@@ -1,6 +1,7 @@
 """Resilient Temporal worker daemon manager and lifecycle orchestration."""
 
 import asyncio
+from typing import Any
 
 import structlog
 from temporalio.client import Client
@@ -27,10 +28,12 @@ class TemporalWorkerManager:
         settings: Settings | None = None,
         readiness_manager: ReadinessManager | None = None,
         runner: BatchEvaluationRunner | None = None,
+        object_store_reader: Any | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.readiness = readiness_manager or get_readiness_manager()
         self._runner = runner
+        self.object_store_reader = object_store_reader
         self._shutdown_event = asyncio.Event()
         self._worker: Worker | None = None
         self._client: Client | None = None
@@ -50,7 +53,11 @@ class TemporalWorkerManager:
     async def run(self) -> None:
         """Run the Temporal worker with resilient startup reconnection loop."""
         runner = self._runner or self._build_default_runner()
-        activity_instance = EvaluateGoldenSetActivity(runner=runner, settings=self.settings)
+        activity_instance = EvaluateGoldenSetActivity(
+            runner=runner,
+            settings=self.settings,
+            object_store_reader=self.object_store_reader,
+        )
 
         backoff = 1.0
         max_backoff = 30.0

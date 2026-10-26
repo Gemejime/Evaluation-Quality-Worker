@@ -48,7 +48,7 @@ Aligned with the authoritative specifications in [RAG Evaluation and Governance 
 | **Batch Evaluation Turnaround** | **$P95 \le 180\text{s}$** for a 100-sample golden-set evaluation run | Prometheus histogram `eval_batch_duration_seconds` | Concurrency semaphore capped at 20 in-flight judge requests per pod |
 | **Sample Judge Latency** | **$P99 \le 5.0\text{s}$** per single metric evaluation | Prometheus histogram `eval_sample_execution_latency_seconds` | 45-second HTTP timeout, connection pooling (`httpx.Limits(max_connections=20)`) |
 | **Heartbeat Reliability** | **100%** of activity tasks heartbeat every 10 seconds per evaluated sample | Temporal activity heartbeat timestamp delta | Periodic heartbeat checkpointing with current `sample_idx` |
-| **Preemption Resumption** | **0 duplicate judge calls** on pod restart; resumption from checkpoint | Verified via simulated SIGKILL at sample 47 resuming at sample 48 | Temporal `activity.get_heartbeat_details()` state inspection |
+| **Preemption Resumption** | **At-least-once replay with zero duplicate judge calls for checkpointed samples**; durable deduplication via ClickHouse `ReplacingMergeTree` | Verified via simulated SIGKILL at sample 47 resuming at sample 48 with completed indices skipped | Temporal `activity.get_heartbeat_details()` state inspection & ClickHouse deduplication |
 | **Memory Ceiling** | **Flat RSS $\le 2.0\text{ GiB}$** under continuous prolonged execution | Container cgroup memory metrics / `soak_test_memory.py` | `jemalloc` (`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2`) |
 | **Quality Gate Threshold** | **$\tau \ge 0.82$** for Faithfulness, Context Precision, and Relevance | CI/CD regression verification script (`scripts/trigger_regression_gate.py`) | Automated blocking of canary releases violating threshold |
 | **ClickHouse Batch Insert** | **Insert latency $\le 1.0\text{s}$** with zero part fragmentation | Client-side buffer timer / ClickHouse system parts | 1,000-record / 1.0s buffer flush threshold |
@@ -192,8 +192,8 @@ Aligned with [Production Grade Backend Concepts.pdf](tasks/Production%20Grade%20
   - Structured request logging middleware capturing processing duration, tenant context, and status codes.
 - **Input Validation**:
   - Strict Pydantic v2 domain schemas ([`internal/evaluation/models.py`](internal/evaluation/models.py)) validating batches, sample items, context passages, and judge responses.
-- **Idempotency**:
-  - Work is strictly identified and keyed by `(tenant_id, run_id, sample_idx)`. Checkpoint resumption skips previously evaluated samples without duplicate judge calls.
+- **Idempotency & Replay**:
+  - Work is strictly identified and keyed by `(tenant_id, run_id, sample_idx)`. Checkpoint resumption skips previously checkpointed samples to prevent duplicate judge calls, while in-flight samples follow at-least-once replay with durable deduplication in ClickHouse via `ReplacingMergeTree`.
 
 ---
 

@@ -261,8 +261,8 @@ cp .env.example .env
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/Gemejime/rag-eval-governance-worker.git
-   cd rag-eval-governance-worker
+   git clone https://github.com/Gemejime/Evaluation-Quality-Worker.git
+   cd Evaluation-Quality-Worker
    ```
 
 2. **Create and activate a virtual environment**:

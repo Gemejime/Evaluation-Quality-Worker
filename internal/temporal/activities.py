@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -79,7 +80,7 @@ class EvaluateGoldenSetActivity:
 
                 def _boto3_read_s3(s3_uri: str) -> str:
                     try:
-                        import boto3  # type: ignore[import-not-found]
+                        import boto3
                     except ImportError as err:
                         raise RuntimeError(
                             f"Cannot load S3 URI '{s3_uri}': boto3 is not installed "
@@ -121,6 +122,7 @@ class EvaluateGoldenSetActivity:
     @activity.defn(name="EvaluateGoldenSetActivity")
     async def run(self, input_data: EvaluateGoldenSetInput) -> EvaluateGoldenSetResult:
         """Execute golden set evaluation activity with zero-recompute resumption."""
+        start_time = time.perf_counter()
         logger.info(
             "evaluate_golden_set_activity_started",
             tenant_id=input_data.tenant_id,
@@ -333,6 +335,35 @@ class EvaluateGoldenSetActivity:
             if metric_score_counts.get("answer_relevance", 0) > 0
             else 0.0
         )
+
+        duration_seconds = time.perf_counter() - start_time
+
+        # Persist evaluation_runs header from merged checkpoint sums and counts
+        if self.runner.sink is not None:
+            attempt = 1
+            try:
+                if activity.in_activity():
+                    attempt = activity.info().attempt
+            except Exception:
+                pass
+
+            await self.runner.sink.flush()
+            status_val = "COMPLETED" if failed_samples_count == 0 else "FAILED_SAMPLES"
+            await self.runner.sink.insert_run(
+                {
+                    "tenant_id": input_data.tenant_id,
+                    "run_id": input_data.run_id,
+                    "pipeline_version": input_data.pipeline_version,
+                    "dataset_id": input_data.dataset_id,
+                    "sample_count": total_samples,
+                    "avg_faithfulness": avg_faithfulness,
+                    "avg_context_precision": avg_context_precision,
+                    "avg_answer_relevance": avg_answer_relevance,
+                    "duration_seconds": duration_seconds,
+                    "status": status_val,
+                    "attempt": attempt,
+                }
+            )
 
         # Evaluate release quality gates scoped to active metrics in input_data
         passed_quality_gates = True

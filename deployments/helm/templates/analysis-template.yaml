@@ -21,7 +21,7 @@ spec:
       interval: 1m
       count: 5
       failureLimit: 1
-      successCondition: result[0] >= 0.82
+      successCondition: result[0] >= {{ args.min-quality-threshold }}
       provider:
         prometheus:
           address: "{{ args.prometheus-server }}"
@@ -38,7 +38,7 @@ spec:
         prometheus:
           address: "{{ args.prometheus-server }}"
           query: |
-            sum(rate(eval_judge_rate_limit_errors_total{error_type="429"}[5m])) or on() vector(0)
+            sum(rate(eval_judge_rate_limit_errors_total{job="{{ args.service-name }}",error_type="429"}[5m])) or on() vector(0)
 
     # 3. Microservice Event-Loop Health Probe Latency Check: P99 latency <= 50ms
     - name: probe-liveness-latency
@@ -50,5 +50,5 @@ spec:
         prometheus:
           address: "{{ args.prometheus-server }}"
           query: |
-            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{handler="/healthz"}[5m])) by (le))
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="{{ args.service-name }}",handler="/healthz"}[5m])) by (le))
 {{- end }}
