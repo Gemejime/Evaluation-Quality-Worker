@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: rag-eval-governance-worker-quality-gate
+  namespace: rag-evaluation
+  labels:
+    app.kubernetes.io/name: rag-eval-governance-worker
+    app.kubernetes.io/component: analysis-template
+spec:
+  args:
+    - name: service-name
+      value: rag-eval-governance-worker
+    - name: prometheus-server
+      value: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
+    - name: min-quality-threshold
+      value: "0.82"
+    - name: pipeline-version
+      value: "v1.0.0"
+  metrics:
+    # 1. Quality Release Gate Metric Check: tau >= 0.82
+    - name: eval-quality-release-gate
+      interval: 1m
+      count: 5
+      failureLimit: 1
+      successCondition: result[0] >= {{ args.min-quality-threshold }}
+      provider:
+        prometheus:
+          address: "{{ args.prometheus-server }}"
+          query: |
+            min(eval_metric_score_value{metric_name=~"context_precision|faithfulness|answer_relevance",pipeline_version=~"{{ args.pipeline-version }}"})
+
+    # 2. Downstream 429 Error Storm Check: Rate limit errors rate must stay 0
+    - name: eval-judge-rate-limit-budget
+      interval: 1m
+      count: 5
+      failureLimit: 2
+      successCondition: result[0] == 0
+      provider:
+        prometheus:
+          address: "{{ args.prometheus-server }}"
+          query: |
+            sum(rate(eval_judge_rate_limit_errors_total{job="{{ args.service-name }}",error_type="429"}[5m])) or on() vector(0)
+
+    # 3. Microservice Event-Loop Health Probe Latency Check: P99 latency <= 50ms
+    - name: probe-liveness-latency
+      interval: 1m
+      count: 5
+      failureLimit: 2
+      successCondition: result[0] <= 0.050
+      provider:
+        prometheus:
+          address: "{{ args.prometheus-server }}"
+          query: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="{{ args.service-name }}",handler="/healthz"}[5m])) by (le))

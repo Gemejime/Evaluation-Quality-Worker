@@ -1,0 +1,57 @@
+[
+  {
+    "sample_id": "sample-001",
+    "sample_idx": 0,
+    "query": "How does ReplacingMergeTree handle row deduplication in ClickHouse?",
+    "retrieved_contexts": [
+      "ReplacingMergeTree is a ClickHouse table engine designed to remove duplicate entries with the same primary key values. Deduplication occurs asynchronously during background part merges.",
+      "Because background merges occur at non-deterministic times, read queries must either use the FINAL modifier or use an explicit GROUP BY/argMax query over the primary key to ensure exact point-in-time deduplication."
+    ],
+    "generated_answer": "ClickHouse's ReplacingMergeTree eliminates duplicate rows sharing the same primary sorting key asynchronously during background part merges. To guarantee deduplicated results at query time before background merges complete, readers should append the FINAL modifier or use an explicit group-by aggregation.",
+    "ground_truth": "ReplacingMergeTree removes duplicate rows sharing the primary key asynchronously during background merges, requiring FINAL for immediate deduplicated reads."
+  },
+  {
+    "sample_id": "sample-002",
+    "sample_idx": 1,
+    "query": "What is the purpose of Temporal activity heartbeating in long-running batch evaluation tasks?",
+    "retrieved_contexts": [
+      "Temporal activity heartbeats allow activities to notify the Temporal cluster of ongoing execution progress.",
+      "If a worker process crashes, times out, or gets preempted, the activity fails its heartbeat timeout and is retried. The new attempt can inspect activity.get_heartbeat_details() to resume execution from the last recorded checkpoint rather than starting over."
+    ],
+    "generated_answer": "Temporal activity heartbeating communicates progress to the Temporal cluster. If an activity host fails or is rescheduled, the next attempt retrieves the last acknowledged progress state via activity.get_heartbeat_details() to resume execution without recomputing already processed samples.",
+    "ground_truth": "Activity heartbeats signal liveness and record checkpoint details so retried activities can resume from the last known state."
+  },
+  {
+    "sample_id": "sample-003",
+    "sample_idx": 2,
+    "query": "Explain how the outbound circuit breaker protects downstream LLM inference endpoints.",
+    "retrieved_contexts": [
+      "The outbound circuit breaker monitors consecutive failures returned by the downstream inference service. If 5 consecutive failures occur, the circuit transitions from CLOSED to OPEN.",
+      "While in the OPEN state, outgoing requests fail immediately without stressing the overloaded judge endpoint. After a 30-second reset timeout, the circuit enters HALF-OPEN to test recovery with a probe request."
+    ],
+    "generated_answer": "The circuit breaker tracks consecutive downstream errors. After 5 consecutive failures, it opens and trips, immediately rejecting subsequent calls for 30 seconds to allow the upstream endpoint to recover before testing recovery in half-open state.",
+    "ground_truth": "The circuit breaker trips after 5 consecutive downstream failures, shedding load for 30 seconds before testing endpoint recovery."
+  },
+  {
+    "sample_id": "sample-004",
+    "sample_idx": 3,
+    "query": "How is Context Precision defined and what happens when zero relevant chunks are found?",
+    "retrieved_contexts": [
+      "Context Precision evaluates whether all ground-truth relevant context chunks are ranked at the top of the retrieved chunk list.",
+      "Context Precision@K is computed as the sum of precision@k multiplied by binary relevance verdicts, divided by the total number of relevant chunks in the top K. Under the evaluation contract, if no retrieved chunks are relevant, Context Precision is defined as 0.0."
+    ],
+    "generated_answer": "Context Precision measures whether relevant context passages are ranked higher than irrelevant ones. If no retrieved chunks in top-K are relevant, the score defaults to 0.0 under the contract.",
+    "ground_truth": "Context Precision measures retrieval ranking quality, and defaults to 0.0 when zero retrieved passages are relevant."
+  },
+  {
+    "sample_id": "sample-005",
+    "sample_idx": 4,
+    "query": "Why is customer Personally Identifiable Information strictly redacted in evaluation worker logs?",
+    "retrieved_contexts": [
+      "Secured Logging mandates that customer PII, raw golden-set prompt texts, retrieved document passages, and generated answers must never be logged.",
+      "Logging sensitive payloads violates regulatory compliance (GDPR, HIPAA) and leaks sensitive enterprise knowledge. Instead, logs only emit truncated SHA-256 reasoning hashes, token counts, and execution metrics."
+    ],
+    "generated_answer": "Customer PII and raw prompt texts are redacted from worker logs to comply with privacy frameworks like GDPR and prevent sensitive data leakage. Diagnostic logs only emit 16-character SHA-256 reasoning hashes and operational metrics.",
+    "ground_truth": "Redacting customer PII and raw texts prevents compliance violations and data leaks, substituting truncated hashes for observability."
+  }
+]

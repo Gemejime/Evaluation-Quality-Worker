@@ -1,0 +1,15 @@
+apiVersion: v2
+name: rag-eval-governance-worker
+description: Helm chart for rag-eval-governance-worker microservice with KEDA autoscaler and jemalloc preloading
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - rag
+  - evaluation
+  - llm-as-a-judge
+  - temporal
+  - clickhouse
+maintainers:
+  - name: Platform Engineering
+    email: platform-eval@company.internal

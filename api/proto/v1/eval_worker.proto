@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package rag.eval.v1;
+
+option go_package = "github.com/gemejime/rag/proto/eval/v1;evalv1";
+
+service EvaluationWorkerService {
+  rpc EvaluateBatch (EvaluateBatchRequest) returns (EvaluateBatchResponse);
+  rpc GetRunStatus (GetRunStatusRequest) returns (GetRunStatusResponse);
+}
+
+message EvaluateBatchRequest {
+  string tenant_id = 1;
+  string run_id = 2;
+  string dataset_id = 3;
+  repeated EvaluationSample samples = 4;
+  repeated string metrics = 5;
+  uint32 concurrency_limit = 6;
+}
+
+message EvaluationSample {
+  string sample_id = 1;
+  uint32 sample_idx = 2;
+  string query = 3;
+  repeated string contexts = 4;
+  string generated_answer = 5;
+  string ground_truth = 6;
+}
+
+message EvaluateBatchResponse {
+  string tenant_id = 1;
+  string run_id = 2;
+  uint32 total_samples = 3;
+  uint32 completed_samples = 4;
+  float avg_faithfulness = 5;
+  float avg_context_precision = 6;
+  float avg_answer_relevance = 7;
+  bool passed_release_gate = 8;
+  float duration_seconds = 9;
+}
+
+message GetRunStatusRequest {
+  string tenant_id = 1;
+  string run_id = 2;
+}
+
+message GetRunStatusResponse {
+  string status = 1;
+  uint32 progress_percentage = 2;
+  uint32 current_sample_idx = 3;
+}

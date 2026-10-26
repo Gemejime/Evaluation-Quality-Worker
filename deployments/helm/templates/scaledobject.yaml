@@ -1,0 +1,26 @@
+{{- if .Values.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "rag-eval-governance-worker.fullname" . }}-autoscaler
+  labels:
+    app.kubernetes.io/name: {{ include "rag-eval-governance-worker.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: evaluation-worker
+spec:
+  scaleTargetRef:
+    apiVersion: {{ if and .Values.rollout .Values.rollout.enabled }}"argoproj.io/v1alpha1"{{ else }}"apps/v1"{{ end }}
+    kind: {{ if and .Values.rollout .Values.rollout.enabled }}"Rollout"{{ else }}"Deployment"{{ end }}
+    name: {{ include "rag-eval-governance-worker.fullname" . }}
+  pollingInterval: {{ .Values.keda.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod | default 300 }}
+  minReplicaCount: {{ .Values.keda.minReplicaCount | default 1 }}
+  maxReplicaCount: {{ .Values.keda.maxReplicaCount | default 8 }}
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.keda.prometheusServerAddress | quote }}
+        metricName: temporal_activity_backlog
+        threshold: {{ .Values.keda.threshold | quote }}
+        query: {{ tpl .Values.keda.query . | quote }}
+{{- end }}

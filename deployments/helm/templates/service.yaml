@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-eval-governance-worker.fullname" . }}
+  labels:
+    {{- include "rag-eval-governance-worker.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.service.port | default 8080 }}
+      targetPort: 8080
+      protocol: TCP
+      name: http-probes
+    - port: {{ .Values.service.grpcPort | default 50051 }}
+      targetPort: 50051
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "rag-eval-governance-worker.selectorLabels" . | nindent 4 }}
