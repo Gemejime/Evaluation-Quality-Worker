@@ -1,49 +1,55 @@
-# Default values for rag-eval-governance-worker Helm chart.
-
 replicaCount: 2
-
 image:
   repository: rag-eval-governance-worker
   pullPolicy: IfNotPresent
-  tag: "0.1.0"
-
+  tag: 0.1.0
 service:
   type: ClusterIP
   port: 8080
   grpcPort: 50051
-
 env:
-  LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so"
-  ENVIRONMENT: "production"
-  TEMPORAL_HOST: "temporal.default.svc.cluster.local:7233"
-  TEMPORAL_NAMESPACE: "default"
-  EVAL_TASK_QUEUE: "eval-task-queue"
-  ACTIVITY_HEARTBEAT_INTERVAL_SECONDS: "10.0"
-  ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS: "30.0"
-  JUDGE_ENDPOINT: "http://rag-inference-serving:8001"
-  JUDGE_MODEL: "meta-llama/Llama-3.1-70B-Instruct"
-  JUDGE_MAX_CONCURRENT_REQUESTS: "20"
-  JUDGE_RATE_LIMIT_RPS: "50.0"
-  CLICKHOUSE_HOST: "clickhouse.storage.svc.cluster.local"
-  CLICKHOUSE_PORT: "8123"
-  CLICKHOUSE_DATABASE: "rag_governance"
-  CLICKHOUSE_BATCH_SIZE: "1000"
-  CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "1.0"
-  QUALITY_GATE_MIN_FAITHFULNESS: "0.82"
-  QUALITY_GATE_MIN_CONTEXT_PRECISION: "0.82"
-  QUALITY_GATE_MIN_ANSWER_RELEVANCE: "0.82"
-  # Optional secret reference for sensitive credentials (e.g. CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
-  secretName: ""
-
-# Node sizing calibrated for compute-optimized c6i.2xlarge instances
+  ENVIRONMENT: production
+  PYTHONUNBUFFERED: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+  SERVICE_NAME: rag-eval-governance-worker
+  HOST: 0.0.0.0
+  PORT: '8080'
+  GRPC_PORT: '50051'
+  TEMPORAL_HOST: temporal.default.svc.cluster.local:7233
+  TEMPORAL_NAMESPACE: default
+  EVAL_TASK_QUEUE: eval-task-queue
+  ACTIVITY_HEARTBEAT_INTERVAL_SECONDS: '10.0'
+  ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS: '30.0'
+  JUDGE_ENDPOINT: http://rag-inference-serving:8001
+  JUDGE_MODEL: Qwen/Qwen2.5-32B-Instruct
+  JUDGE_MAX_CONCURRENT_REQUESTS: '20'
+  JUDGE_RATE_LIMIT_RPS: '50.0'
+  JUDGE_REQUEST_TIMEOUT_SECONDS: '45.0'
+  JUDGE_429_MAX_RETRIES: '5'
+  JUDGE_CB_FAILURE_THRESHOLD: '5'
+  JUDGE_CB_RESET_TIMEOUT_SECONDS: '30.0'
+  JUDGE_BACKOFF_BASE_SECONDS: '1.0'
+  JUDGE_BACKOFF_MAX_SECONDS: '30.0'
+  PROMPT_REGISTRY_URL: http://rag-prompt-registry-service:8080
+  PROMPT_REGISTRY_TIMEOUT_SECONDS: '5.0'
+  CLICKHOUSE_HOST: clickhouse.storage.svc.cluster.local
+  CLICKHOUSE_PORT: '8123'
+  CLICKHOUSE_USER: eval_worker
+  CLICKHOUSE_DATABASE: rag_governance
+  CLICKHOUSE_BATCH_SIZE: '1000'
+  CLICKHOUSE_FLUSH_INTERVAL_SECONDS: '1.0'
+  QUALITY_GATE_MIN_FAITHFULNESS: '0.82'
+  QUALITY_GATE_MIN_CONTEXT_PRECISION: '0.82'
+  QUALITY_GATE_MIN_ANSWER_RELEVANCE: '0.82'
+  secretName: 'rag-eval-worker-secret'
 resources:
   requests:
-    cpu: "2000m"
-    memory: "2Gi"
+    cpu: 2000m
+    memory: 2Gi
   limits:
-    cpu: "4000m"
-    memory: "3.5Gi"
-
+    cpu: 4000m
+    memory: 3.5Gi
 livenessProbe:
   httpGet:
     path: /healthz
@@ -52,7 +58,6 @@ livenessProbe:
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 3
-
 readinessProbe:
   httpGet:
     path: /ready
@@ -61,19 +66,15 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
-
-# KEDA Horizontal Pod Autoscaling configuration
 keda:
   enabled: true
   minReplicaCount: 1
   maxReplicaCount: 8
   pollingInterval: 15
   cooldownPeriod: 300
-  prometheusServerAddress: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
-  threshold: "5"
-  query: 'sum(temporal_activity_task_queue_backlog{task_queue="{{ .Values.env.EVAL_TASK_QUEUE }}"})'
-
-# Argo Rollouts progressive canary delivery configuration
+  prometheusServerAddress: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+  threshold: '5'
+  query: sum(temporal_activity_task_queue_backlog{task_queue="{{ .Values.env.EVAL_TASK_QUEUE
+    }}"})
 rollout:
   enabled: false
-

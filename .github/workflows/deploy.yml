@@ -1,0 +1,90 @@
+name: Deploy - RAG Evaluation & Governance Worker
+
+on:
+  push:
+    branches:
+      - main
+      - rag-eval-governance-worker
+    paths:
+      - "deployments/**"
+      - "internal/**"
+      - "cmd/**"
+      - "pyproject.toml"
+      - ".env.prod"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target deployment environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-to-kubernetes:
+    name: Kubernetes Deploy & Secret Injection
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"
+
+      - name: Configure Kubernetes Context
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+
+      - name: Ensure Kubernetes Namespaces Exist
+        run: |
+          kubectl create namespace rag-evaluation --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: "Inject Worker Secret (Method 1: CI/CD Secret Injection)"
+        run: |
+          echo "Injecting runtime secret for rag-eval-governance-worker..."
+          kubectl create secret generic rag-eval-worker-secret \
+            --from-literal=CLICKHOUSE_PASSWORD="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+            --namespace rag-evaluation \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Inject ClickHouse Operator Secret
+        run: |
+          echo "Injecting credential secret for ClickHouse operator..."
+          kubectl create secret generic clickhouse-eval-worker-secret \
+            --from-literal=password="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+            --namespace storage \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Helm Chart
+        run: |
+          echo "Deploying rag-eval-governance-worker via Helm..."
+          helm upgrade --install rag-eval-worker deployments/helm \
+            --namespace rag-evaluation \
+            --values deployments/helm/values.yaml
+
+      - name: Verify Deployment Rollout
+        run: |
+          echo "Verifying rollout status..."
+          kubectl rollout status deployment/rag-eval-governance-worker \
+            --namespace rag-evaluation \
+            --timeout=180s

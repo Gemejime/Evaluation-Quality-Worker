@@ -1,0 +1,76 @@
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: "rag-clickhouse"
+  namespace: "storage"
+  labels:
+    app.kubernetes.io/name: "rag-clickhouse"
+    app.kubernetes.io/part-of: "rag-evaluation-governance"
+    app.kubernetes.io/managed-by: "altinity-clickhouse-operator"
+spec:
+  configuration:
+    users:
+      eval_worker:
+        password:
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-eval-worker-secret
+              key: password
+        networks:
+          ip:
+            - "10.0.0.0/8"
+            - "172.16.0.0/12"
+            - "192.168.0.0/16"
+            - "127.0.0.1/32"
+        profile: "default"
+        quota: "default"
+    databases:
+      rag_governance: ""
+    settings:
+      max_connections: 500
+      keep_alive_timeout: 300
+      max_execution_time: 60
+  defaults:
+    templates:
+      podTemplate: pod-template
+      dataVolumeClaimTemplate: data-volume-template
+      serviceTemplate: service-template
+  templates:
+    podTemplates:
+      - name: pod-template
+        spec:
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:24.3-alpine
+              resources:
+                requests:
+                  memory: "4Gi"
+                  cpu: "2"
+                limits:
+                  memory: "8Gi"
+                  cpu: "4"
+    volumeClaimTemplates:
+      - name: data-volume-template
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
+          storageClassName: gp3
+    serviceTemplates:
+      - name: service-template
+        generateName: "clickhouse-rag-clickhouse"
+        spec:
+          ports:
+            - name: http
+              port: 8123
+              targetPort: 8123
+            - name: client
+              port: 9000
+              targetPort: 9000
+  clusters:
+    - name: "eval-cluster"
+      layout:
+        shardsCount: 1
+        replicasCount: 1
