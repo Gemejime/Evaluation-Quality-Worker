@@ -124,6 +124,16 @@ def test_check_drift_mismatched_values() -> None:
     assert "Mismatch for 'JUDGE_MODEL'" in drift[0]
 
 
+def test_check_drift_stale_keys() -> None:
+    """Verify check_drift detects stale keys in Helm values while excluding secretName."""
+    env_vars = {"PORT": "8080"}
+    helm_env = {"PORT": "8080", "STALE_KEY": "old_val", "secretName": "app-secret"}
+
+    drift = check_drift(env_vars, helm_env)
+    assert len(drift) == 1
+    assert "Stale key in values.yaml: 'STALE_KEY'" in drift[0]
+
+
 def test_update_argocd_analysis_template(
     temp_repo: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

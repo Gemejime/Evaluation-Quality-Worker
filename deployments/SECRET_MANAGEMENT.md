@@ -31,9 +31,9 @@ To uphold **Zero-Trust GitOps compliance**, the service enforces strict decoupli
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `CLICKHOUSE_PASSWORD` | `rag-eval-worker-secret` | `rag-evaluation` | `CLICKHOUSE_PASSWORD` | `rag-eval-governance-worker` | Authentication password for user `eval_worker` inserting metrics into ClickHouse database `rag_governance`. |
 | `password` | `clickhouse-eval-worker-secret` | `storage` | `password` | Altinity ClickHouse Operator (`rag-clickhouse`) | Provisioned password credential for user `eval_worker` defined in `deployments/clickhouse/chi-production.yaml`. |
-| `TEMPORAL_AUTH_TOKEN` *(Optional / Secured)* | `rag-eval-worker-secret` | `rag-evaluation` | `TEMPORAL_AUTH_TOKEN` | Temporal Activity Worker | Bearer / API token when connecting to managed Temporal Cloud or secured clusters. |
-| `TEMPORAL_TLS_KEY` / `CERT` *(Optional)* | `rag-eval-worker-tls` | `rag-evaluation` | `tls.key`, `tls.crt`, `ca.crt` | Temporal gRPC Client | mTLS private key and client certificate for mutual TLS authentication. |
-| `JUDGE_API_KEY` *(Optional / Secured)* | `rag-eval-worker-secret` | `rag-evaluation` | `JUDGE_API_KEY` | `TritonJudgeClient` | Egress authorization header if upstream `rag-inference-serving` gateway requires authentication. |
+| `TEMPORAL_AUTH_TOKEN` *(Unsupported)* | `rag-eval-worker-secret` | `rag-evaluation` | `TEMPORAL_AUTH_TOKEN` | Temporal Activity Worker | Unsupported for default worker until `TemporalWorkerManager` passes authentication credentials to `Client.connect`. |
+| `TEMPORAL_TLS_KEY` / `CERT` *(Unsupported)* | `rag-eval-worker-tls` | `rag-evaluation` | `tls.key`, `tls.crt`, `ca.crt` | Temporal gRPC Client | Unsupported for default worker until `TemporalWorkerManager` passes TLS configuration to `Client.connect`. |
+| `JUDGE_API_KEY` *(Unsupported)* | `rag-eval-worker-secret` | `rag-evaluation` | `JUDGE_API_KEY` | `TritonJudgeClient` | Unsupported by default `TritonJudgeClient` until it reads the secret and attaches an `Authorization` header to judge requests. |
 
 ---
 
@@ -61,7 +61,7 @@ To uphold **Zero-Trust GitOps compliance**, the service enforces strict decoupli
        ┌───────────────────────────────┐     ┌─────────────────────────────────┐
        │ Altinity ClickHouse Operator  │     │ `rag-eval-governance-worker`    │
        │ (chi-production.yaml)         │     │ (deployment.yaml / rollout.yaml)│
-       │   users.eval_worker.password  │     │   envFrom:                      │
+       │   users.eval_worker/password  │     │   envFrom:                      │
        │     valueFrom.secretKeyRef    │     │     - secretRef:                │
        └───────────────────────────────┘     │         name: secretName        │
                                              └─────────────────────────────────┘
@@ -77,16 +77,28 @@ As implemented in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.y
 
 ```yaml
 - name: "Inject Worker Secret"
+  env:
+    PROD_CLICKHOUSE_PASSWORD: ${{ secrets.PROD_CLICKHOUSE_PASSWORD }}
   run: |
-    kubectl create secret generic rag-eval-worker-secret \
-      --from-literal=CLICKHOUSE_PASSWORD="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+    if [ -z "$PROD_CLICKHOUSE_PASSWORD" ]; then
+      echo "Error: PROD_CLICKHOUSE_PASSWORD is not set or empty" >&2
+      exit 1
+    fi
+    printf '%s' "$PROD_CLICKHOUSE_PASSWORD" | kubectl create secret generic rag-eval-worker-secret \
+      --from-file=CLICKHOUSE_PASSWORD=/dev/stdin \
       --namespace rag-evaluation \
       --dry-run=client -o yaml | kubectl apply -f -
 
 - name: "Inject ClickHouse Operator Secret"
+  env:
+    PROD_CLICKHOUSE_PASSWORD: ${{ secrets.PROD_CLICKHOUSE_PASSWORD }}
   run: |
-    kubectl create secret generic clickhouse-eval-worker-secret \
-      --from-literal=password="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+    if [ -z "$PROD_CLICKHOUSE_PASSWORD" ]; then
+      echo "Error: PROD_CLICKHOUSE_PASSWORD is not set or empty" >&2
+      exit 1
+    fi
+    printf '%s' "$PROD_CLICKHOUSE_PASSWORD" | kubectl create secret generic clickhouse-eval-worker-secret \
+      --from-file=password=/dev/stdin \
       --namespace storage \
       --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -211,7 +223,7 @@ envFrom:
 ### Runtime Settings Ingestion
 Pydantic's `BaseSettings` in [`internal/config/settings.py`](../internal/config/settings.py) dynamically reads `CLICKHOUSE_PASSWORD` from the injected container environment:
 ```python
-CLICKHOUSE_HOST: str = "clickhouse.storage.svc.cluster.local"
+CLICKHOUSE_HOST: str = "clickhouse-rag-clickhouse.storage.svc.cluster.local"
 CLICKHOUSE_PORT: int = 8123
 CLICKHOUSE_USER: str = "eval_worker"
 CLICKHOUSE_PASSWORD: str = ""  # Populated via secretRef
@@ -229,10 +241,10 @@ CLICKHOUSE_DATABASE: str = "rag_governance"
 | **Production Manifest Sync** | `.env.prod` | Stripped during sync | Synchronized via `sync_env_to_deployments.py` |
 | **Kubernetes Runtime** | `rag-eval-governance-worker-config` | `rag-eval-worker-secret` | Provisioned out-of-band |
 
-### Automated Drift & Leak Prevention
-Run the drift detection tool to confirm that no credentials have leaked into Helm values:
+### Configuration Drift Detection
+Run the drift detection tool to confirm that `deployments/helm/values.yaml` is synchronized with the non-secret environment variables in `.env.prod`:
 ```bash
-# Validate sync state without modifying manifests
+# Validate sync state without modifying manifests (detects missing, mismatched, or stale keys)
 python scripts/sync_env_to_deployments.py --check-only
 
 # Synchronize non-secret environment parameters safely
@@ -243,50 +255,49 @@ python scripts/sync_env_to_deployments.py --sync
 
 ## 7. Zero-Downtime Secret Rotation Runbook
 
-Follow this runbook to rotate the ClickHouse `eval_worker` credentials without terminating active Temporal evaluation workflows:
+The `eval_worker` user account is declaratively provisioned via `users.d` through the Altinity ClickHouse Operator (`chi-production.yaml`). Because configuration-file users in ClickHouse are read-only, user credential updates cannot be performed via `ALTER USER` SQL commands.
 
-### Step 1: Update ClickHouse User with Dual Passwords
-ClickHouse allows multiple SHA-256 hashes per user. In the ClickHouse SQL console:
-```sql
-ALTER USER eval_worker IDENTIFIED WITH sha256_password BY 'NEW_PASSWORD_HERE' ADD IDENTIFIED WITH sha256_password BY 'OLD_PASSWORD_HERE';
-```
+Follow this coordinated sequence to rotate credentials without terminating active evaluation workflows:
 
-### Step 2: Update the External Secret Store
+### Step 1: Update the External Secret Store
 Update the secret in your primary secret store (AWS Secrets Manager, Vault, or GitHub Secrets `PROD_CLICKHOUSE_PASSWORD`).
 
-### Step 3: Apply the Secret to Kubernetes
+### Step 2: Update the ClickHouse Operator Secret and Roll ClickHouse Pods
+Update the operator credential secret in the `storage` namespace, then roll or restart the ClickHouse pods so their `/etc/clickhouse-server/users.d/` environment picks up the new secret:
 ```bash
-# Update Worker Secret
-kubectl create secret generic rag-eval-worker-secret \
-  --from-literal=CLICKHOUSE_PASSWORD="NEW_PASSWORD_HERE" \
-  --namespace rag-evaluation \
+# Update ClickHouse Operator Secret
+printf '%s' "NEW_PASSWORD_HERE" | kubectl create secret generic clickhouse-eval-worker-secret \
+  --from-file=password=/dev/stdin \
+  --namespace storage \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Update ClickHouse Operator Secret
-kubectl create secret generic clickhouse-eval-worker-secret \
-  --from-literal=password="NEW_PASSWORD_HERE" \
-  --namespace storage \
+# Roll ClickHouse StatefulSet to apply updated users.d secret
+kubectl rollout restart statefulset -n storage -l app.kubernetes.io/name=rag-clickhouse
+kubectl rollout status statefulset -n storage -l app.kubernetes.io/name=rag-clickhouse --timeout=300s
+```
+
+### Step 3: Apply the Worker Secret to Kubernetes
+Update the worker runtime secret in the `rag-evaluation` namespace:
+```bash
+# Update Worker Secret
+printf '%s' "NEW_PASSWORD_HERE" | kubectl create secret generic rag-eval-worker-secret \
+  --from-file=CLICKHOUSE_PASSWORD=/dev/stdin \
+  --namespace rag-evaluation \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### Step 4: Perform Progressive Rolling Restart
+### Step 4: Perform Progressive Rolling Restart of Evaluation Workers
 Because the worker uses **Temporal Activity Heartbeating** (`ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=10.0`), restarted pods resume evaluation tasks from their last checkpointed `sample_idx` without duplicating judge calls:
 
 ```bash
-# If using standard deployment:
-kubectl rollout restart deployment/rag-eval-governance-worker -n rag-evaluation
+# If using standard deployment (for release rag-eval-worker):
+kubectl rollout restart deployment/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation
 
 # If using Argo Rollouts:
-kubectl argo rollouts restart rollout/rag-eval-governance-worker -n rag-evaluation
+kubectl argo rollouts restart rollout/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation
 
 # Monitor rollout progression:
-kubectl rollout status deployment/rag-eval-governance-worker -n rag-evaluation --timeout=180s
-```
-
-### Step 5: Revoke the Old Password in ClickHouse
-Once all pods are running on the new password and metrics flush successfully:
-```sql
-ALTER USER eval_worker IDENTIFIED WITH sha256_password BY 'NEW_PASSWORD_HERE';
+kubectl rollout status deployment/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation --timeout=180s
 ```
 
 ---
@@ -305,8 +316,8 @@ kubectl get secret clickhouse-eval-worker-secret -n storage -o jsonpath='{.data.
 ### Verify Container Injection
 ```bash
 # Confirm variable is bound inside running container without revealing value in bash history
-kubectl exec -it deploy/rag-eval-governance-worker -n rag-evaluation -- printenv CLICKHOUSE_USER
-kubectl exec -it deploy/rag-eval-governance-worker -n rag-evaluation -- python -c "import os; print('CLICKHOUSE_PASSWORD bound:', bool(os.environ.get('CLICKHOUSE_PASSWORD')))"
+kubectl exec -it deploy/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation -- printenv CLICKHOUSE_USER
+kubectl exec -it deploy/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation -- python -c "import os; print('CLICKHOUSE_PASSWORD bound:', bool(os.environ.get('CLICKHOUSE_PASSWORD')))"
 ```
 
 ### Inspect Pod Logs for Credential Redaction Compliance

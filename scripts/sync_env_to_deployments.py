@@ -72,6 +72,9 @@ def check_drift(env_vars: dict[str, str], helm_env: dict[str, Any]) -> list[str]
             drift.append(
                 f"Mismatch for '{key}': values.yaml='{helm_env[key]}' vs env_file='{expected_val}'"
             )
+    for key in helm_env:
+        if key != "secretName" and key not in env_vars:
+            drift.append(f"Stale key in values.yaml: '{key}' (not present in env_file)")
     return drift
 
 
