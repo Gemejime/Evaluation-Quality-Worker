@@ -18,6 +18,7 @@ spec:
         {{- include "rag-eval-governance-worker.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: evaluation-worker
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
