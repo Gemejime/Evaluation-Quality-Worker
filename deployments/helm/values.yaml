@@ -33,7 +33,7 @@ env:
   JUDGE_BACKOFF_MAX_SECONDS: '30.0'
   PROMPT_REGISTRY_URL: http://rag-prompt-registry-service:8080
   PROMPT_REGISTRY_TIMEOUT_SECONDS: '5.0'
-  CLICKHOUSE_HOST: clickhouse.storage.svc.cluster.local
+  CLICKHOUSE_HOST: clickhouse-rag-clickhouse.storage.svc.cluster.local
   CLICKHOUSE_PORT: '8123'
   CLICKHOUSE_USER: eval_worker
   CLICKHOUSE_DATABASE: rag_governance
@@ -42,7 +42,7 @@ env:
   QUALITY_GATE_MIN_FAITHFULNESS: '0.82'
   QUALITY_GATE_MIN_CONTEXT_PRECISION: '0.82'
   QUALITY_GATE_MIN_ANSWER_RELEVANCE: '0.82'
-  secretName: 'rag-eval-worker-secret'
+  secretName: rag-eval-worker-secret
 resources:
   requests:
     cpu: 2000m

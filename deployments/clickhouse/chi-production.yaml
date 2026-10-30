@@ -10,26 +10,34 @@ metadata:
 spec:
   configuration:
     users:
-      eval_worker:
-        password:
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-eval-worker-secret
-              key: password
-        networks:
-          ip:
-            - "10.0.0.0/8"
-            - "172.16.0.0/12"
-            - "192.168.0.0/16"
-            - "127.0.0.1/32"
-        profile: "default"
-        quota: "default"
-    databases:
-      rag_governance: ""
+      eval_worker/password:
+        valueFrom:
+          secretKeyRef:
+            name: clickhouse-eval-worker-secret
+            key: password
+      eval_worker/networks/ip:
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+        - "127.0.0.1/32"
+      eval_worker/profile: "default"
+      eval_worker/quota: "default"
+    files:
+      config.d/init_db.xml: |
+        <clickhouse>
+          <startup_scripts>
+            <sql>CREATE DATABASE IF NOT EXISTS rag_governance;</sql>
+          </startup_scripts>
+        </clickhouse>
     settings:
       max_connections: 500
       keep_alive_timeout: 300
       max_execution_time: 60
+    clusters:
+      - name: "eval-cluster"
+        layout:
+          shardsCount: 1
+          replicasCount: 1
   defaults:
     templates:
       podTemplate: pod-template
@@ -69,8 +77,3 @@ spec:
             - name: client
               port: 9000
               targetPort: 9000
-  clusters:
-    - name: "eval-cluster"
-      layout:
-        shardsCount: 1
-        replicasCount: 1

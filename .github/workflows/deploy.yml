@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - rag-eval-governance-worker
     paths:
       - "deployments/**"
       - "internal/**"
@@ -12,15 +11,6 @@ on:
       - "pyproject.toml"
       - ".env.prod"
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target deployment environment"
-        required: true
-        default: "production"
-        type: choice
-        options:
-          - production
-          - staging
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -37,6 +27,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -60,31 +52,51 @@ jobs:
           kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f -
 
       - name: "Inject Worker Secret (Method 1: CI/CD Secret Injection)"
+        env:
+          PROD_CLICKHOUSE_PASSWORD: ${{ secrets.PROD_CLICKHOUSE_PASSWORD }}
         run: |
           echo "Injecting runtime secret for rag-eval-governance-worker..."
-          kubectl create secret generic rag-eval-worker-secret \
-            --from-literal=CLICKHOUSE_PASSWORD="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+          if [ -z "$PROD_CLICKHOUSE_PASSWORD" ]; then
+            echo "Error: PROD_CLICKHOUSE_PASSWORD is not set or empty" >&2
+            exit 1
+          fi
+          printf '%s' "$PROD_CLICKHOUSE_PASSWORD" | kubectl create secret generic rag-eval-worker-secret \
+            --from-file=CLICKHOUSE_PASSWORD=/dev/stdin \
             --namespace rag-evaluation \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Inject ClickHouse Operator Secret
+        env:
+          PROD_CLICKHOUSE_PASSWORD: ${{ secrets.PROD_CLICKHOUSE_PASSWORD }}
         run: |
           echo "Injecting credential secret for ClickHouse operator..."
-          kubectl create secret generic clickhouse-eval-worker-secret \
-            --from-literal=password="${{ secrets.PROD_CLICKHOUSE_PASSWORD }}" \
+          if [ -z "$PROD_CLICKHOUSE_PASSWORD" ]; then
+            echo "Error: PROD_CLICKHOUSE_PASSWORD is not set or empty" >&2
+            exit 1
+          fi
+          printf '%s' "$PROD_CLICKHOUSE_PASSWORD" | kubectl create secret generic clickhouse-eval-worker-secret \
+            --from-file=password=/dev/stdin \
             --namespace storage \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy Helm Chart
         run: |
           echo "Deploying rag-eval-governance-worker via Helm..."
-          helm upgrade --install rag-eval-worker deployments/helm \
+          helm upgrade --install rag-eval-governance-worker deployments/helm \
             --namespace rag-evaluation \
             --values deployments/helm/values.yaml
 
       - name: Verify Deployment Rollout
         run: |
           echo "Verifying rollout status..."
-          kubectl rollout status deployment/rag-eval-governance-worker \
-            --namespace rag-evaluation \
-            --timeout=180s
+          if kubectl get rollout rag-eval-governance-worker --namespace rag-evaluation >/dev/null 2>&1; then
+            echo "Checking Argo Rollout status..."
+            kubectl argo rollouts status rollout/rag-eval-governance-worker \
+              --namespace rag-evaluation \
+              --timeout=180s
+          else
+            echo "Checking Deployment rollout status..."
+            kubectl rollout status deployment/rag-eval-governance-worker \
+              --namespace rag-evaluation \
+              --timeout=180s
+          fi
