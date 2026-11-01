@@ -263,41 +263,51 @@ Follow this coordinated sequence to rotate credentials without terminating activ
 Update the secret in your primary secret store (AWS Secrets Manager, Vault, or GitHub Secrets `PROD_CLICKHOUSE_PASSWORD`).
 
 ### Step 2: Update the ClickHouse Operator Secret and Roll ClickHouse Pods
-Update the operator credential secret in the `storage` namespace, then roll or restart the ClickHouse pods so their `/etc/clickhouse-server/users.d/` environment picks up the new secret:
+Read the new password silently into an environment variable so it is not recorded in shell history, update the operator credential secret in the `storage` namespace, then roll or restart the ClickHouse pods so their `/etc/clickhouse-server/users.d/` environment picks up the new secret:
 ```bash
+# Read password securely without echoing into shell history
+read -s -p "Enter new ClickHouse password: " CH_PASS
+echo
+
 # Update ClickHouse Operator Secret
-printf '%s' "NEW_PASSWORD_HERE" | kubectl create secret generic clickhouse-eval-worker-secret \
+printf '%s' "$CH_PASS" | kubectl create secret generic clickhouse-eval-worker-secret \
   --from-file=password=/dev/stdin \
   --namespace storage \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Roll ClickHouse StatefulSet to apply updated users.d secret
+# NOTE: The production configuration in deployments/clickhouse/chi-production.yaml provisions a single
+# replica (shardsCount: 1, replicasCount: 1). Restarting this single replica causes brief database downtime.
+# Additionally, until workers are restarted in Step 4, active workers attempting writes with the prior
+# password will fail. For true zero-downtime rotation, deploy a highly available multi-replica ClickHouse
+# cluster with an overlapping credential window (dual-user or dual-credential provisioning). When operating
+# with the single replica, schedule this rotation within a planned maintenance window with paused worker tasks.
 kubectl rollout restart statefulset -n storage -l app.kubernetes.io/name=rag-clickhouse
 kubectl rollout status statefulset -n storage -l app.kubernetes.io/name=rag-clickhouse --timeout=300s
 ```
 
 ### Step 3: Apply the Worker Secret to Kubernetes
-Update the worker runtime secret in the `rag-evaluation` namespace:
+Update the worker runtime secret in the `rag-evaluation` namespace reusing the variable:
 ```bash
 # Update Worker Secret
-printf '%s' "NEW_PASSWORD_HERE" | kubectl create secret generic rag-eval-worker-secret \
+printf '%s' "$CH_PASS" | kubectl create secret generic rag-eval-worker-secret \
   --from-file=CLICKHOUSE_PASSWORD=/dev/stdin \
   --namespace rag-evaluation \
   --dry-run=client -o yaml | kubectl apply -f -
+unset CH_PASS
 ```
 
 ### Step 4: Perform Progressive Rolling Restart of Evaluation Workers
 Because the worker uses **Temporal Activity Heartbeating** (`ACTIVITY_HEARTBEAT_INTERVAL_SECONDS=10.0`), restarted pods resume evaluation tasks from their last checkpointed `sample_idx` without duplicating judge calls:
 
 ```bash
-# If using standard deployment (for release rag-eval-worker):
-kubectl rollout restart deployment/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation
+# If using standard deployment (for release rag-eval-governance-worker):
+kubectl rollout restart deployment/rag-eval-governance-worker -n rag-evaluation
+kubectl rollout status deployment/rag-eval-governance-worker -n rag-evaluation --timeout=180s
 
 # If using Argo Rollouts:
-kubectl argo rollouts restart rollout/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation
-
-# Monitor rollout progression:
-kubectl rollout status deployment/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation --timeout=180s
+kubectl argo rollouts restart rag-eval-governance-worker -n rag-evaluation
+kubectl argo rollouts status rag-eval-governance-worker -n rag-evaluation --timeout=1200s
 ```
 
 ---
@@ -316,8 +326,8 @@ kubectl get secret clickhouse-eval-worker-secret -n storage -o jsonpath='{.data.
 ### Verify Container Injection
 ```bash
 # Confirm variable is bound inside running container without revealing value in bash history
-kubectl exec -it deploy/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation -- printenv CLICKHOUSE_USER
-kubectl exec -it deploy/rag-eval-worker-rag-eval-governance-worker -n rag-evaluation -- python -c "import os; print('CLICKHOUSE_PASSWORD bound:', bool(os.environ.get('CLICKHOUSE_PASSWORD')))"
+kubectl exec -it deploy/rag-eval-governance-worker -n rag-evaluation -- printenv CLICKHOUSE_USER
+kubectl exec -it deploy/rag-eval-governance-worker -n rag-evaluation -- python -c "import os; print('CLICKHOUSE_PASSWORD bound:', bool(os.environ.get('CLICKHOUSE_PASSWORD')))"
 ```
 
 ### Inspect Pod Logs for Credential Redaction Compliance
