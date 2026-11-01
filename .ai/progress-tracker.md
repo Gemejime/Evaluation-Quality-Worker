@@ -127,6 +127,11 @@
     - Declarative ArgoCD `Application` mapping Helm chart to namespace `rag-evaluation` with auto-prune and self-heal.
     - Argo Rollouts `AnalysisTemplate` monitoring release quality gate ($\tau \ge 0.82$) and 429 rate budget with automated canary rollbacks.
     - Progressive canary `Rollout` blueprint with 20% and 50% steps.
+  - **Deployment Security Hardening & Altinity CHI Standardization** (`.github/workflows/deploy.yml`, `deployments/clickhouse/chi-production.yaml`, `deployments/SECRET_MANAGEMENT.md`):
+    - Hardened GitHub Actions deploy workflow with stdin piping for secrets, step-scoped environment variables, empty secret pre-validation, credential persistence disabled (`persist-credentials: false`), and branch restrictions (`main` only).
+    - Standardized Altinity `ClickHouseInstallation` with flat slash-delimited user settings (`eval_worker/password`, `eval_worker/networks/ip`), native `startup_scripts` database bootstrap (`rag_governance`), and corrected `spec.configuration.clusters` hierarchy.
+    - Resolved `CLICKHOUSE_HOST` to operator-generated service (`clickhouse-rag-clickhouse.storage.svc.cluster.local`).
+    - Extended drift detection in `scripts/sync_env_to_deployments.py` to identify stale keys in Helm values and aligned secret rotation runbook for `users.d`-managed accounts.
 
 
 ---

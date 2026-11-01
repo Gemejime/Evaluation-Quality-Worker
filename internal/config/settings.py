@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     PROMPT_REGISTRY_TIMEOUT_SECONDS: float = 5.0
 
     # ClickHouse Persistence Settings
-    CLICKHOUSE_HOST: str = "clickhouse.storage.svc.cluster.local"
+    CLICKHOUSE_HOST: str = "clickhouse-rag-clickhouse.storage.svc.cluster.local"
     CLICKHOUSE_PORT: int = 8123
     CLICKHOUSE_USER: str = "eval_worker"
     CLICKHOUSE_PASSWORD: str = ""

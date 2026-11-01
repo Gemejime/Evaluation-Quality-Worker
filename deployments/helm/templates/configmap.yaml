@@ -5,24 +5,10 @@ metadata:
   labels:
     {{- include "rag-eval-governance-worker.labels" . | nindent 4 }}
 data:
-  LD_PRELOAD: {{ .Values.env.LD_PRELOAD | default "/usr/lib/x86_64-linux-gnu/libjemalloc.so" | quote }}
-  ENVIRONMENT: {{ .Values.env.ENVIRONMENT | default "production" | quote }}
-  PORT: "8080"
-  GRPC_PORT: "50051"
-  TEMPORAL_HOST: {{ .Values.env.TEMPORAL_HOST | quote }}
-  TEMPORAL_NAMESPACE: {{ .Values.env.TEMPORAL_NAMESPACE | default "default" | quote }}
-  EVAL_TASK_QUEUE: {{ .Values.env.EVAL_TASK_QUEUE | default "eval-task-queue" | quote }}
-  ACTIVITY_HEARTBEAT_INTERVAL_SECONDS: {{ .Values.env.ACTIVITY_HEARTBEAT_INTERVAL_SECONDS | default "10.0" | quote }}
-  ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS: {{ .Values.env.ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS | default "30.0" | quote }}
-  JUDGE_ENDPOINT: {{ .Values.env.JUDGE_ENDPOINT | quote }}
-  JUDGE_MODEL: {{ .Values.env.JUDGE_MODEL | quote }}
-  JUDGE_MAX_CONCURRENT_REQUESTS: {{ .Values.env.JUDGE_MAX_CONCURRENT_REQUESTS | default "20" | quote }}
-  JUDGE_RATE_LIMIT_RPS: {{ .Values.env.JUDGE_RATE_LIMIT_RPS | default "50.0" | quote }}
-  CLICKHOUSE_HOST: {{ .Values.env.CLICKHOUSE_HOST | quote }}
-  CLICKHOUSE_PORT: {{ .Values.env.CLICKHOUSE_PORT | default "8123" | quote }}
-  CLICKHOUSE_DATABASE: {{ .Values.env.CLICKHOUSE_DATABASE | default "rag_governance" | quote }}
-  CLICKHOUSE_BATCH_SIZE: {{ .Values.env.CLICKHOUSE_BATCH_SIZE | default "1000" | quote }}
-  CLICKHOUSE_FLUSH_INTERVAL_SECONDS: {{ .Values.env.CLICKHOUSE_FLUSH_INTERVAL_SECONDS | default "1.0" | quote }}
-  QUALITY_GATE_MIN_FAITHFULNESS: {{ .Values.env.QUALITY_GATE_MIN_FAITHFULNESS | default "0.82" | quote }}
-  QUALITY_GATE_MIN_CONTEXT_PRECISION: {{ .Values.env.QUALITY_GATE_MIN_CONTEXT_PRECISION | default "0.82" | quote }}
-  QUALITY_GATE_MIN_ANSWER_RELEVANCE: {{ .Values.env.QUALITY_GATE_MIN_ANSWER_RELEVANCE | default "0.82" | quote }}
+  PORT: {{ default "8080" (get .Values.env "PORT") | quote }}
+  GRPC_PORT: {{ default "50051" (get .Values.env "GRPC_PORT") | quote }}
+  {{- range $key, $val := .Values.env }}
+  {{- if and (ne $key "secretName") (ne $key "PORT") (ne $key "GRPC_PORT") (ne $val nil) }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
+  {{- end }}

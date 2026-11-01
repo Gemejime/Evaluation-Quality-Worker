@@ -369,8 +369,8 @@ docker build -f deployments/docker/Dockerfile -t rag-eval-governance-worker:late
 The worker is deployed to compute-optimized nodes (`c6i.2xlarge`) via Helm:
 
 ```bash
-helm upgrade --install rag-eval-worker deployments/helm \
-  --namespace rag-compute \
+helm upgrade --install rag-eval-governance-worker deployments/helm \
+  --namespace rag-evaluation \
   --values deployments/helm/values.yaml
 ```
 
