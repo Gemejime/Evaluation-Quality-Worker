@@ -81,11 +81,6 @@ jobs:
 
       - name: Deploy Helm Chart
         run: |
-          echo "Checking for legacy rag-eval-worker release..."
-          if helm status rag-eval-worker --namespace rag-evaluation >/dev/null 2>&1; then
-            echo "Removing legacy rag-eval-worker release to prevent duplicate workers..."
-            helm uninstall rag-eval-worker --namespace rag-evaluation
-          fi
           echo "Deploying rag-eval-governance-worker via Helm..."
           helm upgrade --install rag-eval-governance-worker deployments/helm \
             --namespace rag-evaluation \
@@ -108,4 +103,12 @@ jobs:
             kubectl rollout status deployment/rag-eval-governance-worker \
               --namespace rag-evaluation \
               --timeout=180s
+          fi
+
+      - name: Cleanup Legacy Helm Release
+        run: |
+          echo "Checking for legacy rag-eval-worker release post-rollout..."
+          if helm status rag-eval-worker --namespace rag-evaluation >/dev/null 2>&1; then
+            echo "Replacement verified successfully. Removing legacy rag-eval-worker release..."
+            helm uninstall rag-eval-worker --namespace rag-evaluation
           fi
