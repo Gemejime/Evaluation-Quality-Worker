@@ -266,8 +266,12 @@ Update the secret in your primary secret store (AWS Secrets Manager, Vault, or G
 Read the new password silently into an environment variable so it is not recorded in shell history, update the operator credential secret in the `storage` namespace, then roll or restart the ClickHouse pods so their `/etc/clickhouse-server/users.d/` environment picks up the new secret:
 ```bash
 # Read password securely without echoing into shell history
-read -s -p "Enter new ClickHouse password: " CH_PASS
+IFS= read -r -s -p "Enter new ClickHouse password: " CH_PASS
 echo
+if [ -z "$CH_PASS" ]; then
+  echo "Error: ClickHouse password cannot be empty" >&2
+  exit 1
+fi
 
 # Update ClickHouse Operator Secret
 printf '%s' "$CH_PASS" | kubectl create secret generic clickhouse-eval-worker-secret \
