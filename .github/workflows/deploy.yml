@@ -81,6 +81,11 @@ jobs:
 
       - name: Deploy Helm Chart
         run: |
+          echo "Checking for legacy rag-eval-worker release..."
+          if helm status rag-eval-worker --namespace rag-evaluation >/dev/null 2>&1; then
+            echo "Removing legacy rag-eval-worker release to prevent duplicate workers..."
+            helm uninstall rag-eval-worker --namespace rag-evaluation
+          fi
           echo "Deploying rag-eval-governance-worker via Helm..."
           helm upgrade --install rag-eval-governance-worker deployments/helm \
             --namespace rag-evaluation \
@@ -90,10 +95,14 @@ jobs:
         run: |
           echo "Verifying rollout status..."
           if kubectl get rollout rag-eval-governance-worker --namespace rag-evaluation >/dev/null 2>&1; then
+            echo "Installing kubectl-argo-rollouts plugin..."
+            ARGO_ROLLOUTS_VERSION="v1.7.2"
+            sudo curl -sSL -o /usr/local/bin/kubectl-argo-rollouts "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-amd64"
+            sudo chmod +x /usr/local/bin/kubectl-argo-rollouts
             echo "Checking Argo Rollout status..."
-            kubectl argo rollouts status rollout/rag-eval-governance-worker \
+            kubectl argo rollouts status rag-eval-governance-worker \
               --namespace rag-evaluation \
-              --timeout=180s
+              --timeout=1200s
           else
             echo "Checking Deployment rollout status..."
             kubectl rollout status deployment/rag-eval-governance-worker \

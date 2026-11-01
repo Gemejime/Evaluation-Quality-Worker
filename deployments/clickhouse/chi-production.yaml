@@ -22,11 +22,15 @@ spec:
         - "127.0.0.1/32"
       eval_worker/profile: "default"
       eval_worker/quota: "default"
+      eval_worker/grants/query:
+        - "GRANT SELECT, INSERT, CREATE TABLE ON rag_governance.*"
     files:
       config.d/init_db.xml: |
         <clickhouse>
           <startup_scripts>
-            <sql>CREATE DATABASE IF NOT EXISTS rag_governance;</sql>
+            <scripts>
+              <query>CREATE DATABASE IF NOT EXISTS rag_governance;</query>
+            </scripts>
           </startup_scripts>
         </clickhouse>
     settings:
@@ -49,7 +53,7 @@ spec:
         spec:
           containers:
             - name: clickhouse
-              image: clickhouse/clickhouse-server:24.3-alpine
+              image: clickhouse/clickhouse-server:24.8-alpine
               resources:
                 requests:
                   memory: "4Gi"
